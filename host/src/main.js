@@ -177,6 +177,11 @@ app.whenReady().then(async () => {
   core.start();
   updateTray();
   if (!process.argv.includes('--hidden')) createUiWindow();
+  if (process.env.GLIDR_PAIR_OUT) {
+    // dev aid for end-to-end tests: open a pairing and write its link to a file
+    const slot = store.createSlot(); core.refreshSlots();
+    fs.writeFileSync(process.env.GLIDR_PAIR_OUT, crypto.toLink(Buffer.from(slot.key, 'base64url'), store.get('hostName'), store.get('signalBase')));
+  }
   if (process.env.GLIDR_SHOT) {
     // dev aid: screenshot the control panel (optionally with a pairing open) and quit
     store.createSlot(); core.refreshSlots();

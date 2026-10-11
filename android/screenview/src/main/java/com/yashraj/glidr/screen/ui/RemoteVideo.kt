@@ -6,7 +6,10 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -59,12 +62,22 @@ fun RemoteVideo(
 ) {
     val context = LocalContext.current
     var container by remember { mutableStateOf(IntSize.Zero) }
-    val vs by rememberUpdatedState(videoSize)
+    var frame by remember { mutableStateOf(0 to 0) }
+    val vs by rememberUpdatedState(if (frame.first > 0) frame else videoSize)
     val direct by rememberUpdatedState(directTouch)
     val hp by rememberUpdatedState(haptic)
     val renderer = remember {
         SurfaceViewRenderer(context).apply {
-            init(WebRtcRuntime.eglBase(context).eglBaseContext, null)
+            init(
+                WebRtcRuntime.eglBase(context).eglBaseContext,
+                object : RendererCommon.RendererEvents {
+                    override fun onFirstFrameRendered() {}
+                    override fun onFrameResolutionChanged(w: Int, h: Int, rotation: Int) {
+                        val size = if (rotation % 180 == 0) w to h else h to w
+                        Handler(Looper.getMainLooper()).post { frame = size }
+                    }
+                },
+            )
             setScalingType(RendererCommon.ScalingType.SCALE_ASPECT_FIT)
             setEnableHardwareScaler(true)
             setMirror(false)
@@ -79,9 +92,14 @@ fun RemoteVideo(
     }
 
     Box(modifier.onSizeChanged { container = it }) {
+        // SurfaceViewRenderer only letterboxes when the view itself has the video's aspect ratio, so size it here.
+        val density = LocalDensity.current
+        val fit = if (frame.first > 0 && container.width > 0) minOf(container.width / frame.first.toFloat(), container.height / frame.second.toFloat()) else 0f
         AndroidView(
             factory = { renderer },
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (fit > 0f) {
+                Modifier.align(Alignment.Center).size(with(density) { (frame.first * fit).toDp() }, with(density) { (frame.second * fit).toDp() })
+            } else Modifier.fillMaxSize(),
             update = {
                 it.scaleX = state.zoom
                 it.scaleY = state.zoom

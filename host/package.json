@@ -9,7 +9,7 @@
     "start": "electron .",
     "test": "node test/crypto.test.js",
     "selftest": "electron . --selftest",
-    "dist": "electron-packager . GlidrScreen --platform=win32 --arch=x64 --out=dist --overwrite --asar --ignore=\"^/(dist|test)\""
+    "dist": "node scripts/pkg.js"
   },
   "dependencies": {
     "koffi": "^2.9.0",
