@@ -1,0 +1,22 @@
+{
+  "name": "glidr-screen-host",
+  "productName": "Glidr Screen",
+  "version": "1.0.0",
+  "description": "PC side of Glidr Screen: streams your monitors to your phone over WebRTC (peer to peer, no media server).",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/crypto.test.js",
+    "selftest": "electron . --selftest",
+    "dist": "electron-packager . GlidrScreen --platform=win32 --arch=x64 --out=dist --overwrite --asar --ignore=\"^/(dist|test)\""
+  },
+  "dependencies": {
+    "koffi": "^2.9.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "@electron/packager": "^18.3.6"
+  }
+}

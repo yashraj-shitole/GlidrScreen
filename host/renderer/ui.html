@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'">
+<title>Glidr Screen</title>
+<link rel="stylesheet" href="ui.css">
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Glidr Screen</h1>
+      <p class="sub">See and control this PC from your phone. Peer to peer, no media server.</p>
+    </div>
+    <span id="pill" class="pill"><i></i><b id="pillText">Starting</b></span>
+  </header>
+
+  <section id="live" class="card hidden">
+    <div class="row between"><h2 id="liveName">Phone</h2><button id="disconnect" class="ghost">Disconnect</button></div>
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="card" id="pairCard">
+    <h2>Connect a phone</h2>
+    <div id="pairIdle">
+      <p class="dim">Generate a pairing code, then scan it with Glidr Screen on your phone. After that the phone can connect from anywhere with internet.</p>
+      <button id="newPairing" class="primary">Pair a new phone</button>
+    </div>
+    <div id="pairOpen" class="hidden">
+      <div class="qrwrap"><img id="qr" alt="Pairing QR code" width="200" height="200"></div>
+      <p class="dim center">Scan with the phone, or type this code:</p>
+      <button id="code" class="code" title="Click to copy"></button>
+      <div class="row center gap">
+        <button id="copyLink" class="ghost">Copy link</button>
+        <button id="cancelPairing" class="ghost">Cancel</button>
+      </div>
+      <p class="dim center small" id="expires"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Paired phones</h2>
+    <ul id="devices" class="list"></ul>
+    <p id="noDevices" class="dim small">No phone paired yet.</p>
+  </section>
+
+  <section class="card">
+    <h2>Displays</h2>
+    <div id="monitors" class="monitors"></div>
+  </section>
+
+  <section class="card">
+    <h2>Settings</h2>
+    <label class="row between"><span>Sharing<small>Accept connections from paired phones</small></span><input type="checkbox" id="sharing" class="switch"></label>
+    <label class="row between"><span>Allow remote control<small>Mouse, keyboard and typing from the phone</small></span><input type="checkbox" id="allowControl" class="switch"></label>
+    <label class="row between"><span>Start with Windows<small>Runs quietly in the tray</small></span><input type="checkbox" id="autostart" class="switch"></label>
+    <label class="row between"><span>Default quality<small>24 fps always; this caps resolution and bitrate</small></span>
+      <select id="quality"><option value="auto">Auto</option><option value="low">Low 540p</option><option value="balanced">Balanced 720p</option><option value="high">High 1440p</option></select></label>
+    <label class="row between"><span>Video codec<small>Auto prefers hardware H.264</small></span>
+      <select id="codec"><option value="auto">Auto</option><option value="h264">H.264</option><option value="vp8">VP8</option></select></label>
+    <details>
+      <summary>Advanced</summary>
+      <label class="col"><span>PC name</span><input type="text" id="hostName" maxlength="40"></label>
+      <label class="col"><span>Signaling server<small>Only used to introduce the two devices, end-to-end encrypted. Any ntfy server works.</small></span><input type="text" id="signalBase" spellcheck="false"></label>
+      <p class="dim small" id="signalStatus"></p>
+    </details>
+  </section>
+
+  <footer class="dim small"><span id="version"></span> &middot; <a href="#" id="quit">Quit</a></footer>
+</main>
+<script src="ui.js"></script>
+</body>
+</html>
