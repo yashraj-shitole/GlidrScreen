@@ -1,0 +1,9 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <!-- screen -->
+    <path android:fillColor="#0B0C0A" android:pathData="M30,34 h48 a4,4 0 0 1 4,4 v28 a4,4 0 0 1 -4,4 h-48 a4,4 0 0 1 -4,-4 v-28 a4,4 0 0 1 4,-4 z" />
+    <!-- stand -->
+    <path android:fillColor="#0B0C0A" android:pathData="M46,74 h16 v4 h-16 z" />
+    <!-- cursor -->
+    <path android:fillColor="#D4FF3F" android:pathData="M44,42 L44,62 L49.5,57 L53,65 L57,63.5 L53.5,55.5 L61,55 Z" />
+</vector>
