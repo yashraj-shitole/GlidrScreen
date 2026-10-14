@@ -83,6 +83,13 @@ function render(s) {
   }
   $('signalStatus').textContent = `Signaling: ${s.signal}`;
   $('version').textContent = `Glidr Screen ${s.version}`;
+
+  const u = s.update || {};
+  $('update').classList.toggle('hidden', u.status !== 'available');
+  $('updateTitle').textContent = `Version ${u.latest} is available`;
+  $('updateStatus').textContent = {
+    checking: ' (checking...)', latest: ' (up to date)', none: ' (no releases yet)', error: ' (could not check)',
+  }[u.status] || '';
 }
 
 $('newPairing').onclick = () => window.glidr.act('newPairing');
@@ -91,6 +98,8 @@ $('copyLink').onclick = () => state.pairing && window.glidr.act('copy', state.pa
 $('code').onclick = () => state.pairing && window.glidr.act('copy', state.pairing.code);
 $('disconnect').onclick = () => window.glidr.act('disconnect');
 $('quit').onclick = (e) => { e.preventDefault(); window.glidr.act('quit'); };
+$('checkUpdate').onclick = (e) => { e.preventDefault(); window.glidr.act('checkUpdate'); };
+$('updateGet').onclick = () => window.glidr.act('openUpdate');
 $('sharing').onchange = (e) => window.glidr.act('sharing', e.target.checked);
 for (const id of ['allowControl', 'autostart']) $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.checked });
 for (const id of ['quality', 'codec']) $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.value });

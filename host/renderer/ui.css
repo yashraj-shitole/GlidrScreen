@@ -42,3 +42,5 @@ input.switch:checked { background: var(--accent); } input.switch:checked::after 
 details { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 10px; } summary { cursor: pointer; color: var(--dim); }
 footer { text-align: center; } a { color: var(--dim); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.update { border-color: var(--accent); } .update small { display: block; color: var(--dim); font-size: 12px; font-weight: 500; }
+button.primary.auto { width: auto; padding: 10px 16px; flex: none; }

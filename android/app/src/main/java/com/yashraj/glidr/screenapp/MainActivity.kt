@@ -9,6 +9,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yashraj.glidr.screen.ui.GlidrScreenApp
+import com.yashraj.glidr.screen.update.UpdateSource
+
+/** GitHub repo whose releases carry the APK (Glidr Screen-1.2.0.apk and so on), tagged v1.2.0. */
+private const val RELEASES_REPO = "yashraj-shitole/GlidrScreen"
 
 class MainActivity : ComponentActivity() {
     private var pendingLink by mutableStateOf<String?>(null)
@@ -19,8 +23,10 @@ class MainActivity : ComponentActivity() {
         // Only on a fresh start: a recreated activity (locale, density, process restore) still carries the old
         // intent, and consuming it again would reconnect and drop the live session.
         if (savedInstanceState == null) pendingLink = linkFrom(intent)
+        val version = packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
+        val updates = UpdateSource(RELEASES_REPO, version)
         setContent {
-            GlidrScreenApp(pendingLink = pendingLink, onLinkConsumed = { pendingLink = null })
+            GlidrScreenApp(pendingLink = pendingLink, onLinkConsumed = { pendingLink = null }, updates = updates)
         }
     }
 

@@ -21,6 +21,16 @@ the right edge is a scroll strip. Chips **1 2** on the picture and the Displays 
 the Displays sheet shows every monitor with live previews in their real layout. Keyboard sheet: typing, modifiers,
 arrows, F-keys, shortcuts, media keys and any-language phrases. Pinch to zoom the picture; *Direct touch* clicks where you tap.
 
+## Updates
+
+Both apps ask GitHub for the latest release of **yashraj-shitole/GlidrScreen** (PC: 15 s after start and daily, tray
+menu and panel footer "Check for updates"; phone: on start and from the PC list). A newer version shows a banner with a
+Download button; nothing installs itself. The phone skips the check when Google Play installed it.
+
+To publish: bump `version` in `host/package.json` and `versionName`/`versionCode` in `android/app/build.gradle.kts`,
+then create a GitHub release tagged `vX.Y.Z` with the phone `.apk` and the PC package (an `.exe` or a `*win*.zip` of
+`host/dist/GlidrScreen-win32-x64`) attached. Until the repo has a release, both apps say "no releases yet".
+
 ## Test
 
 ```

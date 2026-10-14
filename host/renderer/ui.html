@@ -16,6 +16,11 @@
     <span id="pill" class="pill"><i></i><b id="pillText">Starting</b></span>
   </header>
 
+  <section id="update" class="card update hidden">
+    <div class="row between"><span><b id="updateTitle"></b><small>Download it, then quit this app and run the new version.</small></span>
+      <button id="updateGet" class="primary auto">Download</button></div>
+  </section>
+
   <section id="live" class="card hidden">
     <div class="row between"><h2 id="liveName">Phone</h2><button id="disconnect" class="ghost">Disconnect</button></div>
     <div class="stats" id="stats"></div>
@@ -67,7 +72,7 @@
     </details>
   </section>
 
-  <footer class="dim small"><span id="version"></span> &middot; <a href="#" id="quit">Quit</a></footer>
+  <footer class="dim small"><span id="version"></span> &middot; <a href="#" id="checkUpdate">Check for updates</a><span id="updateStatus"></span> &middot; <a href="#" id="quit">Quit</a></footer>
 </main>
 <script src="ui.js"></script>
 </body>

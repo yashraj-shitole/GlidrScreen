@@ -8,6 +8,10 @@ import com.yashraj.glidr.screen.signal.PairedPc
 import com.yashraj.glidr.screen.signal.PairingParser
 import com.yashraj.glidr.screen.signal.PairingStore
 import com.yashraj.glidr.screen.signal.UNNAMED_PC
+import com.yashraj.glidr.screen.update.GitHubReleases
+import com.yashraj.glidr.screen.update.UpdateSource
+import com.yashraj.glidr.screen.update.UpdateState
+import com.yashraj.glidr.screen.update.installedFromPlay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,6 +87,29 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
 
     fun updatePrefs(f: (ViewerPrefs) -> ViewerPrefs) {
         _prefs.value = f(_prefs.value).also { prefsStore.save(it) }
+    }
+
+    // ------------------------------------------------------------------ updates (only when the host app opts in)
+
+    private var updateSource: UpdateSource? = null
+    private val _update = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val update: StateFlow<UpdateState> = _update.asStateFlow()
+    val updatesEnabled: Boolean get() = updateSource != null
+    val currentVersion: String? get() = updateSource?.currentVersion
+
+    /** Turns update checks on and checks once per app start. Embedded hosts leave this off and ship their own. */
+    fun configureUpdates(source: UpdateSource) {
+        if (updateSource == source) return
+        updateSource = source
+        checkForUpdates()
+    }
+
+    fun checkForUpdates() {
+        val src = updateSource ?: return
+        if (_update.value == UpdateState.Checking) return
+        if (installedFromPlay(getApplication())) { _update.value = UpdateState.ViaStore; return }
+        _update.value = UpdateState.Checking
+        viewModelScope.launch { _update.value = GitHubReleases.check(src, "GlidrScreen-Android/${src.currentVersion}") }
     }
 
     override fun onCleared() {

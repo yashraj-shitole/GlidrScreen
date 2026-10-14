@@ -24,8 +24,10 @@ const { HostCore } = require('./host');
 const displays = require('./displays');
 const crypto = require('./crypto');
 const icon = require('./icon');
+const { UpdateChecker } = require('./updates');
 
-let store, signaling, input, core, engineWin, uiWin, tray;
+let store, signaling, input, core, engineWin, uiWin, tray, updates;
+let notifiedVersion = null;
 const engine = new EventEmitter();
 engine.send = (cmd) => { if (engineWin && !engineWin.isDestroyed()) engineWin.webContents.send('cmd', cmd); };
 engine.ready = new Promise((resolve) => engine.once('ready', resolve));
@@ -65,11 +67,19 @@ function createUiWindow() {
     webPreferences: { preload: path.join(__dirname, '..', 'renderer', 'ui-preload.js'), contextIsolation: true, sandbox: true },
   });
   uiWin.loadFile(path.join(__dirname, '..', 'renderer', 'ui.html'));
-  uiWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  uiWin.webContents.setWindowOpenHandler(({ url }) => { openLink(url); return { action: 'deny' }; });
   uiWin.on('close', (e) => { if (!quitting) { e.preventDefault(); uiWin.hide(); } });
   // State is only pushed while the window is visible, so catch up whenever it is shown again from the tray.
   uiWin.on('show', pushState);
 }
+
+/** Opens web links in the browser. Anything else (file:, custom protocols) is refused. */
+function openLink(url) {
+  if (/^https:\/\//i.test(String(url))) shell.openExternal(url);
+}
+
+/** Login item: started hidden in the tray. The same args must be passed when reading the setting back. */
+const LOGIN_ITEM = { args: ['--hidden'] };
 
 async function buildState() {
   store.pruneSlots();
@@ -93,9 +103,10 @@ async function buildState() {
     settings: {
       hostName: store.get('hostName'), allowControl: store.get('allowControl'), quality: store.get('quality'),
       codec: store.get('codec'), signalBase: store.get('signalBase'),
-      autostart: app.getLoginItemSettings().openAtLogin,
+      autostart: app.getLoginItemSettings(LOGIN_ITEM).openAtLogin,
     },
     version: app.getVersion(),
+    update: updates.state,
   };
 }
 
@@ -112,12 +123,15 @@ function updateTray() {
   const s = core.snapshot();
   const label = { paused: 'Sharing paused', waiting: 'Ready', connecting: 'Connecting...', streaming: `Streaming to ${s.device?.name}` }[s.status];
   tray.setToolTip(`Glidr Screen: ${label}`);
+  const u = updates.state;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Glidr Screen', click: createUiWindow },
     { label, enabled: false },
+    ...(u.status === 'available' ? [{ label: `Download update ${u.latest}`, click: () => openLink(u.download) }] : []),
     ...(s.status === 'streaming' || s.status === 'connecting'
       ? [{ label: 'Disconnect phone', click: () => core.endSession('disconnected on PC', true) }] : []),
     { label: s.sharing ? 'Pause sharing' : 'Resume sharing', click: () => core.setSharing(!s.sharing) },
+    { label: 'Check for updates', click: () => updates.check() },
     { type: 'separator' },
     { label: 'Quit', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -143,13 +157,15 @@ function registerIpc() {
         if (typeof arg.signalBase === 'string' && /^https?:\/\/[^\s]+$/.test(arg.signalBase.trim())) {
           patch.signalBase = arg.signalBase.trim().replace(/\/+$/, '');
         }
-        if (typeof arg.autostart === 'boolean') app.setLoginItemSettings({ openAtLogin: arg.autostart });
+        if (typeof arg.autostart === 'boolean') app.setLoginItemSettings({ ...LOGIN_ITEM, openAtLogin: arg.autostart });
         store.set(patch);
         if (patch.signalBase) signaling.setBase(patch.signalBase);
         if ('allowControl' in patch) core.controlChanged();
         break;
       }
       case 'copy': clipboard.writeText(String(arg)); break;
+      case 'checkUpdate': await updates.check(); break;
+      case 'openUpdate': if (updates.state.download) openLink(updates.state.download); break;
       case 'quit': quitting = true; app.quit(); break;
       default: break;
     }
@@ -164,6 +180,14 @@ app.whenReady().then(async () => {
   input = new InputInjector();
   core = new HostCore({ store, signaling, engine, input });
   core.on('changed', pushState);
+  updates = new UpdateChecker(app.getVersion(), { repo: process.env.GLIDR_UPDATE_REPO }); // env: dev aid
+  updates.on('changed', (u) => {
+    pushState();
+    if (u.status === 'available' && tray && notifiedVersion !== u.latest) {
+      notifiedVersion = u.latest; // one balloon per new version
+      tray.displayBalloon({ title: 'Glidr Screen update', content: `Version ${u.latest} is available. Open the tray menu to download it.` });
+    }
+  });
   core.on('log', (m) => { if (SELFTEST || process.env.GLIDR_DEBUG) console.log('[host]', m); });
   screen.on('display-added', () => core.displaysChanged());
   screen.on('display-removed', () => core.displaysChanged());
@@ -186,7 +210,9 @@ app.whenReady().then(async () => {
 
   tray = new Tray(nativeImage.createFromBuffer(icon.png(32)));
   tray.on('click', createUiWindow);
+  tray.on('balloon-click', () => { if (updates.state.status === 'available') openLink(updates.state.download); });
   core.start();
+  updates.start();
   updateTray();
   if (!process.argv.includes('--hidden')) createUiWindow();
   if (process.env.GLIDR_PAIR_OUT) {
@@ -196,11 +222,16 @@ app.whenReady().then(async () => {
   }
   if (process.env.GLIDR_SHOT) {
     // dev aid: screenshot the control panel (optionally with a pairing open) and quit
-    store.createSlot(); core.refreshSlots();
+    store.createSlot(); core.refreshSlots(); updates.check();
     setTimeout(async () => { fs.writeFileSync(process.env.GLIDR_SHOT, (await uiWin.webContents.capturePage()).toPNG()); quitting = true; app.quit(); }, 3500);
   }
 });
 
 app.on('second-instance', () => { if (app.isReady()) createUiWindow(); });
+// Both windows show local files only: never navigate them anywhere else.
+app.on('web-contents-created', (_e, wc) => {
+  wc.on('will-navigate', (e) => e.preventDefault());
+  wc.on('will-redirect', (e) => e.preventDefault());
+});
 app.on('window-all-closed', () => { /* keep running in the tray */ });
 app.on('before-quit', () => { quitting = true; core?.endSession('host quit', true); });

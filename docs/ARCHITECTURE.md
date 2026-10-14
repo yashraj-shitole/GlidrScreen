@@ -10,6 +10,7 @@ GlidrScreen/
     src/input.js        SendInput via koffi (mouse, wheel, keys, Unicode text)
     src/displays.js     monitor list (physical px), thumbnails, desktopCapturer source ids
     src/store.js        settings + pairing slots (settings.json in %APPDATA%)
+    src/updates.js      update check against the GitHub releases (notify + link only)
     src/selftest.js     headless end-to-end test, plays the phone
     renderer/engine.*   hidden window that owns the RTCPeerConnection (Chromium encoder)
     renderer/ui.*       control panel (QR code, devices, stats, settings)
@@ -18,6 +19,7 @@ GlidrScreen/
       signal/           SignalCrypto, Pairing (+store), NtfySignaling
       net/              ScreenClient (session + reconnect + control API), WebRtcRuntime, Protocol
       input/            PointerMath (acceleration), VideoMapping (touch -> PC coords)
+      update/           GitHub release check, off unless the host app passes an UpdateSource
       ui/               GlidrScreenApp (entry), HomeScreen, ViewerScreen, Trackpad, RemoteVideo, Sheets
     app/                thin standalone app: MainActivity + deep link `glidr://screen`
   docs/                 this file, PROTOCOL.md

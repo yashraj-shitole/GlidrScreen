@@ -36,6 +36,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.yashraj.glidr.screen.signal.PairedPc
+import com.yashraj.glidr.screen.update.UpdateState
 
 /** Opens Google's code scanner (no camera permission needed). */
 fun scanQr(context: Context, onResult: (String) -> Unit, onError: (String) -> Unit) {
@@ -44,6 +45,9 @@ fun scanQr(context: Context, onResult: (String) -> Unit, onError: (String) -> Un
         .addOnSuccessListener { code -> code.rawValue?.let(onResult) }
         .addOnFailureListener { onError(it.message ?: "The scanner is not available. Type the code instead.") }
 }
+
+/** Update check as the home screen shows it. */
+class UpdateUi(val currentVersion: String, val state: UpdateState, val onCheck: () -> Unit, val onOpen: (String) -> Unit)
 
 @Composable
 fun HomeScreen(
@@ -54,6 +58,7 @@ fun HomeScreen(
     onConnect: (PairedPc) -> Unit,
     onForget: (PairedPc) -> Unit,
     onClose: (() -> Unit)?,
+    update: UpdateUi? = null,
 ) {
     val c = Gs.colors
     val context = LocalContext.current
@@ -75,6 +80,20 @@ fun HomeScreen(
                     Column(Modifier.weight(1f)) {
                         Label("Glidr Screen", style = Gs.type.title)
                         Label("See and control your PC from anywhere", color = c.dim, style = Gs.type.small)
+                    }
+                }
+            }
+            (update?.state as? UpdateState.Available)?.let { avail ->
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.s1).border(1.dp, c.accent, RoundedCornerShape(22.dp)).padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                            Label("Version ${avail.release.version} is available", style = Gs.type.body)
+                            Label("You have ${update.currentVersion}. Download and install the new APK.", color = c.dim, style = Gs.type.small)
+                        }
+                        Pill("Download", { update.onOpen(avail.release.downloadUrl) }, primary = true)
                     }
                 }
             }
@@ -120,6 +139,26 @@ fun HomeScreen(
                     "Your PC and phone talk directly over an encrypted link. No video passes through any server.",
                     color = c.dim, style = Gs.type.small, modifier = Modifier.padding(vertical = 8.dp),
                 )
+            }
+            if (update != null) item {
+                val status = when (val s = update.state) {
+                    UpdateState.Checking -> "Checking..."
+                    UpdateState.UpToDate -> "Up to date"
+                    UpdateState.NoReleases -> "No releases published yet"
+                    UpdateState.ViaStore -> "Updates come from Google Play"
+                    is UpdateState.Available -> "Version ${s.release.version} available"
+                    is UpdateState.Failed -> "Could not check for updates"
+                    UpdateState.Idle -> ""
+                }
+                Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Label("Version ${update.currentVersion}", color = c.dim, style = Gs.type.small)
+                        if (status.isNotEmpty()) Label(status, color = c.dim, style = Gs.type.small)
+                    }
+                    if (update.state != UpdateState.ViaStore) {
+                        Pill("Check for updates", update.onCheck, enabled = update.state != UpdateState.Checking)
+                    }
+                }
             }
         }
 

@@ -27,6 +27,7 @@ const MOUSEEVENTF = {
   WHEEL: 0x0800, HWHEEL: 0x1000, VIRTUALDESK: 0x4000, ABSOLUTE: 0x8000,
 };
 const KEYEVENTF = { EXTENDEDKEY: 0x0001, KEYUP: 0x0002, UNICODE: 0x0004 };
+const MAX_NOTCHES = 50;
 
 const VK = {
   Backspace: 0x08, Tab: 0x09, Enter: 0x0d, Shift: 0x10, Ctrl: 0x11, Alt: 0x12, Pause: 0x13, CapsLock: 0x14,
@@ -127,6 +128,9 @@ class InputInjector {
 
   /** Wheel in notches (+y = scroll up / content moves down, +x = right). */
   wheel(x, y) {
+    // A batch is a fraction of a notch to a few notches; clamp so a bad value cannot overflow mouseData.
+    x = Math.max(-MAX_NOTCHES, Math.min(MAX_NOTCHES, x));
+    y = Math.max(-MAX_NOTCHES, Math.min(MAX_NOTCHES, y));
     const out = [];
     if (y) out.push(mouse(0, 0, Math.round(y * 120), MOUSEEVENTF.WHEEL));
     if (x) out.push(mouse(0, 0, Math.round(x * 120), MOUSEEVENTF.HWHEEL));
@@ -150,12 +154,19 @@ class InputInjector {
     [...list].reverse().forEach((n) => this.key(n, 'u'));
   }
 
-  /** Types arbitrary Unicode (any script) through KEYEVENTF_UNICODE. */
+  /**
+   * Types arbitrary Unicode (any script) through KEYEVENTF_UNICODE. Line breaks and tabs are real Enter / Tab
+   * presses: most apps ignore them as Unicode characters.
+   */
   text(str) {
     const out = [];
+    const keyTap = (vk) => out.push(kbd(vk, 0, 0), kbd(vk, 0, KEYEVENTF.KEYUP));
     for (let i = 0; i < str.length; i++) {
       const unit = str.charCodeAt(i);
-      out.push(kbd(0, unit, KEYEVENTF.UNICODE), kbd(0, unit, KEYEVENTF.UNICODE | KEYEVENTF.KEYUP));
+      if (unit === 0x0d) { keyTap(VK.Enter); if (str.charCodeAt(i + 1) === 0x0a) i++; } // \r\n is one Enter
+      else if (unit === 0x0a) keyTap(VK.Enter);
+      else if (unit === 0x09) keyTap(VK.Tab);
+      else out.push(kbd(0, unit, KEYEVENTF.UNICODE), kbd(0, unit, KEYEVENTF.UNICODE | KEYEVENTF.KEYUP));
       if (out.length >= 64) { send(...out); out.length = 0; }
     }
     send(...out);
