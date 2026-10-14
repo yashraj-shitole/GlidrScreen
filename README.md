@@ -9,9 +9,9 @@ Video goes **directly phone <-> PC over WebRTC** (24 fps, encrypted). There is n
 | Phone app + embeddable library | `android/` | Kotlin, Compose, WebRTC; `:screenview` is the library, `:app` a thin shell |
 | Design docs | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md), [PROTOCOL](docs/PROTOCOL.md) |
 
-## Download (v1.0.1)
-- **Phone app:** [GlidrScreen-1.0.1.apk](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v1.0.1/GlidrScreen-1.0.1.apk). Android 10 or newer; allow installing from your browser or file manager.
-- **PC app:** [GlidrScreen-1.0.1-win-x64.zip](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v1.0.1/GlidrScreen-1.0.1-win-x64.zip). Unzip anywhere and run `GlidrScreen.exe` (Windows 10 or newer, x64).
+## Download (v2.0.0)
+- **Phone app:** [GlidrScreen-2.0.0.apk](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.0.0/GlidrScreen-2.0.0.apk). Android 10 or newer; allow installing from your browser or file manager.
+- **PC app:** [GlidrScreen-2.0.0-win-x64.zip](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.0.0/GlidrScreen-2.0.0-win-x64.zip). Unzip anywhere and run `GlidrScreen.exe` (Windows 10 or newer, x64).
 
 All downloads are on the [Releases page](https://github.com/yashraj-shitole/GlidrScreen/releases). The APK is signed
 with a debug key and the PC app is not code-signed, so Windows SmartScreen warns on first run.

@@ -1,7 +1,7 @@
 {
   "name": "glidr-screen-host",
   "productName": "Glidr Screen",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "PC side of Glidr Screen: streams your monitors to your phone over WebRTC (peer to peer, no media server).",
   "main": "src/main.js",
   "private": true,
