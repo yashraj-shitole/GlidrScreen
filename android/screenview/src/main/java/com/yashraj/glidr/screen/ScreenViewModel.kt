@@ -7,9 +7,13 @@ import com.yashraj.glidr.screen.net.ScreenClient
 import com.yashraj.glidr.screen.signal.PairedPc
 import com.yashraj.glidr.screen.signal.PairingParser
 import com.yashraj.glidr.screen.signal.PairingStore
+import com.yashraj.glidr.screen.signal.UNNAMED_PC
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 class ScreenViewModel(app: Application) : AndroidViewModel(app) {
     private val store = PairingStore(app)
@@ -40,16 +44,28 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearPairError() { _pairError.value = null }
 
+    private var nameJob: Job? = null
+
     fun connect(pc: PairedPc) {
+        nameJob?.cancel()
         _client.value?.close()
         store.touch(pc)
         _pcs.value = store.load()
         val c = ScreenClient(getApplication(), pc, viewModelScope)
         _client.value = c
         c.start()
+        if (pc.name == UNNAMED_PC) {
+            // paired with a typed code: keep the name the PC reports, so the list does not say "PC" forever
+            nameJob = viewModelScope.launch {
+                val real = c.hostName.first { it != UNNAMED_PC && it.isNotBlank() }
+                store.rename(pc, real)
+                _pcs.value = store.load()
+            }
+        }
     }
 
     fun disconnect() {
+        nameJob?.cancel()
         _client.value?.close()
         _client.value = null
     }

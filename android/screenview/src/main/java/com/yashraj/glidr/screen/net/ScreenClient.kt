@@ -77,12 +77,12 @@ class ScreenClient(
     val videoTrack: StateFlow<VideoTrack?> = _video.asStateFlow()
     private val _monitors = MutableStateFlow<List<Monitor>>(emptyList())
     val monitors: StateFlow<List<Monitor>> = _monitors.asStateFlow()
-    private val _active = MutableStateFlow<Int?>(null)
-    val activeMonitor: StateFlow<Int?> = _active.asStateFlow()
+    private val _active = MutableStateFlow<Long?>(null)
+    val activeMonitor: StateFlow<Long?> = _active.asStateFlow()
     private val _switching = MutableStateFlow(false)
     val switching: StateFlow<Boolean> = _switching.asStateFlow()
-    private val _thumbs = MutableStateFlow<Map<Int, Bitmap>>(emptyMap())
-    val thumbs: StateFlow<Map<Int, Bitmap>> = _thumbs.asStateFlow()
+    private val _thumbs = MutableStateFlow<Map<Long, Bitmap>>(emptyMap())
+    val thumbs: StateFlow<Map<Long, Bitmap>> = _thumbs.asStateFlow()
     private val _stats = MutableStateFlow<LinkStats?>(null)
     val stats: StateFlow<LinkStats?> = _stats.asStateFlow()
     private val _rtt = MutableStateFlow<Int?>(null)
@@ -98,6 +98,13 @@ class ScreenClient(
     /** Decoded video size in pixels (0 to 0 until the first frame). */
     val videoSize: StateFlow<Pair<Int, Int>> = _videoSize.asStateFlow()
 
+    private val _diag = MutableStateFlow("")
+    /** One line of connection diagnostics (candidate types, ICE state), shown while connecting. */
+    val diag: StateFlow<String> = _diag.asStateFlow()
+    private val localTypes = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private var remoteSummary = ""
+    @Volatile private var iceState = "new"
+    @Volatile private var gatherState = "new"
     private var job: Job? = null
     @Volatile private var currentSid: String? = null
     private var pcon: PeerConnection? = null
@@ -215,12 +222,21 @@ class ScreenClient(
                     when (m.optString("t")) {
                         "offer" -> found = m
                         "busy" -> throw Fatal("Another phone is using this PC right now")
-                        "deny" -> throw Fatal("Sharing is paused on the PC")
+                        "deny" -> throw Fatal(
+                            when (val why = m.optString("reason")) {
+                                "", "paused" -> "Sharing is paused on the PC"
+                                "no display" -> "The PC has no display to share"
+                                else -> "The PC refused the connection ($why)"
+                            },
+                        )
                     }
                 }
                 found
             } ?: throw Exception("The PC did not answer. Is Glidr Screen running on it, with internet?")
             applyHostName(offer.optString("host"))
+            localTypes.clear(); iceState = "new"; gatherState = "new"
+            remoteSummary = summary(Regex("a=candidate:.* typ ([a-z]+)").findAll(offer.getString("sdp")).groupingBy { it.groupValues[1] }.eachCount())
+            updateDiag()
 
             _state.value = ConnState.Connecting("Opening a direct connection")
             val ended = CompletableDeferred<String>()
@@ -268,6 +284,13 @@ class ScreenClient(
         }
     }
 
+    private fun summary(m: Map<String, Int>) = listOf("host", "srflx", "relay").joinToString(" ") { "$it ${m[it] ?: 0}" }
+
+    private fun updateDiag() {
+        _diag.value = "You: ${summary(localTypes)} | PC: $remoteSummary | gather $gatherState | ICE $iceState"
+        Log.i(TAG, _diag.value)
+    }
+
     private fun applyHostName(name: String) { if (name.isNotBlank()) _hostName.value = name }
 
     private fun deviceName() = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(48)
@@ -302,12 +325,18 @@ class ScreenClient(
         var graceJob: Job? = null
         val observer = object : PeerConnection.Observer {
             override fun onSignalingChange(s: PeerConnection.SignalingState?) {}
-            override fun onIceConnectionChange(s: PeerConnection.IceConnectionState?) {}
+            override fun onIceConnectionChange(s: PeerConnection.IceConnectionState?) { iceState = s?.name?.lowercase() ?: "?"; updateDiag() }
             override fun onIceConnectionReceivingChange(b: Boolean) {}
             override fun onIceGatheringChange(s: PeerConnection.IceGatheringState?) {
+                gatherState = s?.name?.lowercase() ?: "?"
+                updateDiag()
                 if (s == PeerConnection.IceGatheringState.COMPLETE) gathered.complete(Unit)
             }
-            override fun onIceCandidate(c: IceCandidate?) {}
+            override fun onIceCandidate(c: IceCandidate?) {
+                val type = Regex(" typ ([a-z]+)").find(c?.sdp ?: "")?.groupValues?.get(1) ?: return
+                localTypes.merge(type, 1, Int::plus)
+                updateDiag()
+            }
             override fun onIceCandidatesRemoved(c: Array<out IceCandidate>?) {}
             override fun onAddStream(s: MediaStream?) {}
             override fun onRemoveStream(s: MediaStream?) {}
@@ -330,6 +359,8 @@ class ScreenClient(
                 when (s) {
                     PeerConnection.PeerConnectionState.CONNECTED -> { graceJob?.cancel(); connected.complete(Unit) }
                     PeerConnection.PeerConnectionState.DISCONNECTED -> {
+                        // replace, never stack: an orphaned timer would end the session after it recovered
+                        graceJob?.cancel()
                         graceJob = scope.launch { delay(8_000); ended.complete("disconnected") }
                     }
                     PeerConnection.PeerConnectionState.FAILED, PeerConnection.PeerConnectionState.CLOSED -> {
@@ -394,7 +425,7 @@ class ScreenClient(
                 val p = pcon ?: break
                 p.getStats { report ->
                     var fps = 0; var w = 0; var h = 0; var bytes = 0.0; var ts = 0.0
-                    var pairLocal: String? = null
+                    var pairIds: List<String?> = emptyList()
                     val map = report.statsMap
                     for (s in map.values) {
                         val m = s.members
@@ -406,14 +437,15 @@ class ScreenClient(
                             ts = s.timestampUs / 1000.0
                         }
                         if (s.type == "candidate-pair" && m["nominated"] == true && m["state"] == "succeeded") {
-                            pairLocal = m["remoteCandidateId"] as? String
+                            pairIds = listOf(m["localCandidateId"] as? String, m["remoteCandidateId"] as? String)
                         }
                     }
-                    val remoteType = pairLocal?.let { map[it]?.members?.get("candidateType") as? String }
+                    // relayed when either end of the selected pair is a TURN candidate (the PC may have one configured)
+                    val relayed = pairIds.any { id -> id != null && map[id]?.members?.get("candidateType") == "relay" }
                     val mbps = if (lastTs > 0 && ts > lastTs) ((bytes - lastBytes) * 8 / ((ts - lastTs) / 1000.0) / 1_000_000.0).toFloat() else 0f
                     lastBytes = bytes; lastTs = ts
                     if (w > 0) {
-                        _stats.value = LinkStats(fps, w, h, mbps, if (remoteType == "relay") "relay" else "direct")
+                        _stats.value = LinkStats(fps, w, h, mbps, if (relayed) "relay" else "direct")
                         _videoSize.value = w to h
                     }
                 }
@@ -429,24 +461,25 @@ class ScreenClient(
         when (m.optString("t")) {
             "hello" -> {
                 _monitors.value = Monitor.parseAll(m.optJSONArray("monitors"))
-                _active.value = m.optInt("active")
+                _active.value = m.optLong("active")
                 _control.value = m.optBoolean("control", true)
                 _quality.value = Quality.of(m.optString("quality"))
                 applyHostName(m.optString("host"))
             }
             "monitors" -> {
                 _monitors.value = Monitor.parseAll(m.optJSONArray("monitors"))
-                if (m.has("active")) _active.value = m.optInt("active")
+                if (m.has("active")) _active.value = m.optLong("active")
             }
+            "control" -> _control.value = m.optBoolean("on", true)
             "active" -> {
-                _active.value = m.optInt("id")
+                _active.value = m.optLong("id")
                 _switching.value = false
                 _videoSize.value = m.optInt("w") to m.optInt("h")
             }
             "thumb" -> scope.launch(Dispatchers.Default) {
                 val bytes = Base64.decode(m.optString("jpg"), Base64.DEFAULT)
                 BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { bmp ->
-                    _thumbs.update { it + (m.optInt("id") to bmp) }
+                    _thumbs.update { it + (m.optLong("id") to bmp) }
                 }
             }
             "pong" -> _rtt.value = (System.currentTimeMillis() - m.optLong("ts")).toInt().coerceAtLeast(0)
@@ -488,7 +521,7 @@ class ScreenClient(
     fun combo(keys: List<String>) = send(Msg.combo(keys))
     fun typeText(s: String) = if (s.isNotEmpty()) send(Msg.text(s)) else false
 
-    fun switchMonitor(id: Int) {
+    fun switchMonitor(id: Long) {
         if (id == _active.value) return
         _switching.value = true
         send(Msg.monitor(id))

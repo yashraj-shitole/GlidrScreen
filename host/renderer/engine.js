@@ -98,23 +98,25 @@ async function hostAnswer(cmd) {
 }
 
 async function hostSwitch(cmd) {
-  if (!host) return;
+  const s = host;
+  if (!s || s.sid !== cmd.sid) return;
   const stream = await capture(cmd.sourceId);
-  const old = host.stream;
-  await host.sender.replaceTrack(stream.getVideoTracks()[0]);
-  host.stream = stream;
+  if (host !== s) { stream.getTracks().forEach((t) => t.stop()); return; }
+  const old = s.stream;
+  await s.sender.replaceTrack(stream.getVideoTracks()[0]);
+  s.stream = stream;
   old.getTracks().forEach((t) => t.stop());
   await applyQuality();
   const st = stream.getVideoTracks()[0].getSettings();
-  emit({ t: 'switched', sid: host.sid, monitorId: cmd.monitorId, w: st.width, h: st.height });
+  emit({ t: 'switched', sid: s.sid, monitorId: cmd.monitorId, w: st.width, h: st.height });
 }
 
 function hostSend(cmd) {
   if (host?.dc?.readyState === 'open') host.dc.send(cmd.data);
 }
 
-function hostStop() {
-  if (!host) return;
+function hostStop(sid) {
+  if (!host || (sid && host.sid !== sid)) return;
   clearInterval(host.statsTimer);
   try { host.dc?.close(); } catch { /* ignore */ }
   try { host.pc.close(); } catch { /* ignore */ }
@@ -127,15 +129,16 @@ function startStats(s) {
   s.lastBytes = 0; s.lastT = 0;
   s.statsTimer = setInterval(async () => {
     if (host !== s) return;
-    const report = await s.pc.getStats();
-    let out = null, pair = null, local = null, codec = null;
+    let report;
+    try { report = await s.pc.getStats(); } catch { return; } // closed meanwhile
+    let out = null, pair = null, local = null, remote = null, codec = null;
     const byId = {};
     report.forEach((r) => { byId[r.id] = r; });
     report.forEach((r) => {
       if (r.type === 'outbound-rtp' && r.kind === 'video') out = r;
       if (r.type === 'transport' && r.selectedCandidatePairId) pair = byId[r.selectedCandidatePairId];
     });
-    if (pair) local = byId[pair.localCandidateId];
+    if (pair) { local = byId[pair.localCandidateId]; remote = byId[pair.remoteCandidateId]; }
     if (out?.codecId) codec = byId[out.codecId]?.mimeType;
     if (!out) return;
     const kbps = s.lastT ? Math.round(((out.bytesSent - s.lastBytes) * 8) / ((out.timestamp - s.lastT))) : 0;
@@ -144,7 +147,7 @@ function startStats(s) {
       t: 'stats', sid: s.sid,
       fps: Math.round(out.framesPerSecond || 0), w: out.frameWidth, h: out.frameHeight, kbps,
       codec, encoder: out.encoderImplementation, rtt: pair?.currentRoundTripTime ?? null,
-      path: local ? local.candidateType : null, limit: out.qualityLimitationReason,
+      path: local ? (remote?.candidateType === 'relay' ? 'relay' : local.candidateType) : null, limit: out.qualityLimitationReason,
     });
   }, 2000);
 }
@@ -203,7 +206,7 @@ async function viewerStats() {
   });
 }
 
-bridge.onCmd(async (cmd) => {
+async function run(cmd) {
   try {
     switch (cmd.t) {
       case 'start': await hostStart(cmd); break;
@@ -211,7 +214,7 @@ bridge.onCmd(async (cmd) => {
       case 'switch': await hostSwitch(cmd); break;
       case 'send': hostSend(cmd); break;
       case 'quality': if (host) { host.preset = cmd.preset; await applyQuality(); } break;
-      case 'stop': hostStop(); break;
+      case 'stop': hostStop(cmd.sid); break;
       case 'v-start': await viewerStart(cmd); break;
       case 'v-send': viewer?.dc?.send(cmd.data); break;
       case 'v-stats': await viewerStats(); break;
@@ -221,5 +224,14 @@ bridge.onCmd(async (cmd) => {
   } catch (e) {
     emit({ t: 'error', sid: cmd.sid || host?.sid, where: cmd.t, message: String(e && e.message || e) });
   }
+}
+
+// Commands run one at a time, in order. Run concurrently, a 'stop' arriving while 'start' awaits the capture
+// found nothing to stop and the new session leaked, and two quick 'switch'es left a capture running.
+// Data channel sends are synchronous and must not wait behind a slow start or switch.
+let queue = Promise.resolve();
+bridge.onCmd((cmd) => {
+  if (cmd.t === 'send' || cmd.t === 'v-send') { run(cmd); return; }
+  queue = queue.then(() => run(cmd));
 });
 emit({ t: 'ready' });

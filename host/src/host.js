@@ -7,6 +7,7 @@ const CONNECT_TIMEOUT_MS = 30_000;
 const DISCONNECT_GRACE_MS = 10_000;
 const MAX_REQ_AGE_MS = 90_000;
 const PROTOCOL = 1;
+const QUALITIES = new Set(['auto', 'low', 'balanced', 'high']);
 
 class HostCore extends EventEmitter {
   /**
@@ -88,6 +89,7 @@ class HostCore extends EventEmitter {
     this.refreshSlots();
     const monitors = displays.list();
     const primary = monitors.find((d) => d.primary) || monitors[0];
+    if (!primary) return reply({ t: 'deny', reason: 'no display' });
     const s = {
       sid: msg.sid, slotId, key: slot.key, name: slot.name || String(msg.n || 'Phone'),
       live: false, monitorId: primary.id, quality: this.store.get('quality'),
@@ -96,12 +98,14 @@ class HostCore extends EventEmitter {
     this.sess = s;
     this.#changed();
     try {
+      const sourceId = await displays.sourceIdFor(primary.id);
+      if (this.sess !== s) return; // ended or replaced while looking up the capture source
       this.engine.send({
-        t: 'start', sid: s.sid, sourceId: await displays.sourceIdFor(primary.id),
+        t: 'start', sid: s.sid, sourceId,
         iceServers: this.#iceServers(), quality: s.quality, codec: this.store.get('codec'),
       });
     } catch (e) {
-      this.endSession('capture failed: ' + e.message, true);
+      if (this.sess === s) this.endSession('capture failed: ' + e.message, true);
     }
   }
 
@@ -136,7 +140,11 @@ class HostCore extends EventEmitter {
         break;
       case 'state':
         if (e.state === 'failed' || e.state === 'closed') this.endSession('connection ' + e.state, true);
-        else if (e.state === 'disconnected') s.graceTimer = setTimeout(() => this.endSession('connection lost', false), DISCONNECT_GRACE_MS);
+        else if (e.state === 'disconnected') {
+          // replace, never stack: an orphaned timer would end this (or the next) session after it recovered
+          clearTimeout(s.graceTimer);
+          s.graceTimer = setTimeout(() => { if (this.sess === s) this.endSession('connection lost', false); }, DISCONNECT_GRACE_MS);
+        }
         else if (e.state === 'connected') clearTimeout(s.graceTimer);
         break;
       case 'ctl':
@@ -183,13 +191,14 @@ class HostCore extends EventEmitter {
     let m;
     try { m = JSON.parse(data); } catch { return; }
     const control = this.store.get('allowControl');
+    if (process.env.GLIDR_DEBUG && m.t !== 'ping') this.emit('log', 'ctl ' + data);
     switch (m.t) {
       case 'ping': this.#send({ t: 'pong', n: m.n, ts: m.ts }); break;
       case 'monitors': this.#send({ t: 'monitors', monitors: displays.list(), active: s.monitorId }); break;
       case 'monitor': await this.switchMonitor(Number(m.id)); break;
       case 'thumbs': this.#thumbs(!!m.on); break;
       case 'quality':
-        if (m.p in { auto: 1, low: 1, balanced: 1, high: 1 }) {
+        if (QUALITIES.has(m.p)) {
           s.quality = m.p;
           this.engine.send({ t: 'quality', preset: m.p });
         }
@@ -216,7 +225,18 @@ class HostCore extends EventEmitter {
     if (cur.x < d.x || cur.y < d.y || cur.x >= d.x + d.w || cur.y >= d.y + d.h) {
       this.input.moveTo(d.x + d.w / 2, d.y + d.h / 2);
     }
-    this.engine.send({ t: 'switch', sid: s.sid, monitorId: id, sourceId: await displays.sourceIdFor(id) });
+    const sourceId = await displays.sourceIdFor(id);
+    if (this.sess !== s) return;
+    this.engine.send({ t: 'switch', sid: s.sid, monitorId: id, sourceId });
+  }
+
+  /** "Allow remote control" was switched on the PC: tell the phone so it shows (or clears) "View only". */
+  controlChanged() {
+    const s = this.sess;
+    if (!s?.live) return;
+    const on = !!this.store.get('allowControl');
+    if (!on) this.input.reset(); // release anything the phone was holding
+    this.#send({ t: 'control', on });
   }
 
   #thumbs(on) {

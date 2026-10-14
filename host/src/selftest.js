@@ -99,13 +99,18 @@ async function run({ store, core, engine, input, displays }) {
       console.log('SKIP  monitor switch (one display attached)');
     }
 
-    // remote mouse (moves the real cursor a few pixels and back)
+    // remote mouse (moves the real cursor a few pixels and back). Start from the middle of the shared display: from
+    // wherever the user left the cursor (an edge, another monitor) the move is legitimately clamped.
+    const home = InputInjector.cursorPos();
+    const shared = list.find((d) => d.id === hello.active) || list[0];
+    input.moveTo(shared.x + shared.w / 2, shared.y + shared.h / 2);
+    await sleep(100);
     const start = InputInjector.cursorPos();
     vsend({ t: 'mv', dx: 30, dy: 20 });
     await sleep(500);
     const moved = InputInjector.cursorPos();
     ok('remote mouse move', Math.abs(moved.x - (start.x + 30)) <= 1 && Math.abs(moved.y - (start.y + 20)) <= 1, `${start.x},${start.y} -> ${moved.x},${moved.y}`);
-    input.moveTo(start.x, start.y);
+    input.moveTo(home.x, home.y);
 
     // quality preset change must not break the stream
     vsend({ t: 'quality', p: 'low' });

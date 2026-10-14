@@ -28,6 +28,13 @@ class Signaling extends EventEmitter {
     if (this.running) this.#restart();
   }
 
+  /** Switch to another ntfy server. Message ids are per server, so the resume point is dropped. */
+  setBase(base) {
+    this.base = base.replace(/\/+$/, '');
+    this.lastId = null;
+    if (this.running) this.#restart();
+  }
+
   start() {
     if (this.running) return;
     this.running = true;

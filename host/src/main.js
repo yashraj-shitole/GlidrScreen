@@ -12,7 +12,9 @@ if (SELFTEST) app.setPath('userData', path.join(os.tmpdir(), 'glidr-screen-selft
 app.commandLine.appendSwitch('disable-features', 'WebRtcHideLocalIpsWithMdns');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-if (!SELFTEST && !app.requestSingleInstanceLock()) { app.quit(); }
+// A second copy only wakes the first one (see 'second-instance') and must not start its own tray, engine or signaling.
+const primaryInstance = SELFTEST || app.requestSingleInstanceLock();
+if (!primaryInstance) app.quit();
 
 const QRCode = require('qrcode');
 const { Store, UNCLAIMED_TTL_MS } = require('./store');
@@ -39,6 +41,12 @@ function createEngineWindow() {
     },
   });
   engineWin.loadFile(path.join(__dirname, '..', 'renderer', 'engine.html'));
+  // The engine owns the peer connection; if its renderer dies the session is gone. End it and start a fresh engine.
+  engineWin.webContents.on('render-process-gone', (_e, details) => {
+    core?.emit('log', 'engine renderer gone: ' + details.reason);
+    core?.endSession('engine crashed', true);
+    if (!quitting && !engineWin.isDestroyed()) engineWin.reload();
+  });
   engineWin.webContents.on('console-message', (e) => {
     if (SELFTEST || process.env.GLIDR_DEBUG) console.log('[engine]', e.message || e);
   });
@@ -59,6 +67,8 @@ function createUiWindow() {
   uiWin.loadFile(path.join(__dirname, '..', 'renderer', 'ui.html'));
   uiWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   uiWin.on('close', (e) => { if (!quitting) { e.preventDefault(); uiWin.hide(); } });
+  // State is only pushed while the window is visible, so catch up whenever it is shown again from the tray.
+  uiWin.on('show', pushState);
 }
 
 async function buildState() {
@@ -135,7 +145,8 @@ function registerIpc() {
         }
         if (typeof arg.autostart === 'boolean') app.setLoginItemSettings({ openAtLogin: arg.autostart });
         store.set(patch);
-        if (patch.signalBase) { signaling.base = patch.signalBase; signaling.setSlots(store.get('slots')); }
+        if (patch.signalBase) signaling.setBase(patch.signalBase);
+        if ('allowControl' in patch) core.controlChanged();
         break;
       }
       case 'copy': clipboard.writeText(String(arg)); break;
@@ -147,6 +158,7 @@ function registerIpc() {
 }
 
 app.whenReady().then(async () => {
+  if (!primaryInstance) return;
   store = new Store(app.getPath('userData'));
   signaling = new Signaling(store.get('signalBase'));
   input = new InputInjector();

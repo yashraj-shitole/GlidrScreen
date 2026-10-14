@@ -16,7 +16,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        pendingLink = linkFrom(intent)
+        // Only on a fresh start: a recreated activity (locale, density, process restore) still carries the old
+        // intent, and consuming it again would reconnect and drop the live session.
+        if (savedInstanceState == null) pendingLink = linkFrom(intent)
         setContent {
             GlidrScreenApp(pendingLink = pendingLink, onLinkConsumed = { pendingLink = null })
         }

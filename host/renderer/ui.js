@@ -29,7 +29,7 @@ function render(s) {
     $('liveName').textContent = s.device.name;
     const st = s.stats;
     const cells = st ? [
-      [st.fps, 'fps'], [`${st.w}x${st.h}`, 'video'], [`${(st.kbps / 1000).toFixed(1)}`, 'Mbit/s'],
+      [st.fps, 'fps'], [st.w ? `${st.w}x${st.h}` : '...', 'video'], [`${(st.kbps / 1000).toFixed(1)}`, 'Mbit/s'],
       [st.path === 'relay' ? 'relay' : 'direct', st.rtt != null ? `${Math.round(st.rtt * 1000)} ms` : 'path'],
     ] : [['...', 'fps'], ['', 'video'], ['', 'Mbit/s'], ['', 'path']];
     $('stats').innerHTML = cells.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join('');
@@ -102,4 +102,6 @@ for (const id of ['hostName', 'signalBase']) {
 
 window.glidr.onState(render);
 window.glidr.state().then(render);
-setInterval(() => state && render(state), 30_000); // refresh "x min ago" and pairing countdown
+// Refresh "x min ago" and the pairing countdown. Fetch fresh state: the main process prunes an expired pairing
+// on each fetch, and re-rendering the old state would keep showing its QR code.
+setInterval(() => window.glidr.state().then(render), 30_000);

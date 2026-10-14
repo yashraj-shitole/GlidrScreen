@@ -2,6 +2,7 @@ package com.yashraj.glidr.screen.ui
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
@@ -32,6 +33,7 @@ import com.yashraj.glidr.screen.net.WebRtcRuntime
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
 import org.webrtc.VideoTrack
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.hypot
 
 private const val MAX_ZOOM = 5f
@@ -123,7 +125,19 @@ fun RemoteVideo(
                     )
                     if (direct) pointAt(first.position.x, first.position.y)?.let { client.moveAbsolute(it.first, it.second) }
                     while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        // A finger held perfectly still produces no events, so wake up when the long press is due.
+                        val waitLong = direct && !moved && !longFired && fingers == 1
+                        val event = if (waitLong) {
+                            val left = LONG_PRESS_MS - (SystemClock.uptimeMillis() - first.uptimeMillis)
+                            withTimeoutOrNull(left.coerceAtLeast(1L)) { awaitPointerEvent(PointerEventPass.Initial) }
+                        } else {
+                            awaitPointerEvent(PointerEventPass.Initial)
+                        }
+                        if (event == null) {
+                            longFired = true
+                            pointAt(first.position.x, first.position.y)?.let { client.moveAbsolute(it.first, it.second); client.click(MouseButton.Right); hp(true) }
+                            continue
+                        }
                         val pressed = event.changes.filter { it.pressed }
                         if (pressed.isEmpty()) break
                         fingers = maxOf(fingers, pressed.size)

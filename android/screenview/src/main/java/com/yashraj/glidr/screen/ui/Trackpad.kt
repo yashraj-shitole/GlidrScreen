@@ -71,38 +71,42 @@ fun Trackpad(
                         var moved = false
                         var total = Offset.Zero
                         var lastUp = first.uptimeMillis
-                        while (true) {
-                            val event = awaitPointerEvent(PointerEventPass.Main)
-                            val pressed = event.changes.filter { it.pressed }
-                            if (pressed.isEmpty()) {
-                                lastUp = event.changes.maxOf { it.uptimeMillis }
-                                break
-                            }
-                            maxFingers = max(maxFingers, pressed.size)
-                            if (pressed.size >= 2) {
-                                var dx = 0f; var dy = 0f
-                                pressed.forEach { dx += it.positionChange().x; dy += it.positionChange().y }
-                                dx /= pressed.size; dy /= pressed.size
-                                moved = moved || Offset(dx, dy).getDistance() > 0.5f
-                                val k = p.scrollSpeed / PX_PER_NOTCH
-                                val dir = if (p.naturalScroll) 1f else -1f
-                                client.scrollBy(-dir * dx * k, dir * dy * k)
-                            } else if (maxFingers == 1) {
-                                val ch = pressed[0]
-                                val d = ch.positionChange()
-                                total += d
-                                if (!moved && total.getDistance() > viewConfiguration.touchSlop) moved = true
-                                if (moved) {
-                                    val dt = (ch.uptimeMillis - ch.previousUptimeMillis).toFloat()
-                                    val (mx, my) = PointerMath.toHost(d.x, d.y, dt, p.sensitivity, p.accel, hw)
-                                    client.moveBy(mx, my)
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Main)
+                                val pressed = event.changes.filter { it.pressed }
+                                if (pressed.isEmpty()) {
+                                    lastUp = event.changes.maxOf { it.uptimeMillis }
+                                    break
                                 }
+                                maxFingers = max(maxFingers, pressed.size)
+                                if (pressed.size >= 2) {
+                                    var dx = 0f; var dy = 0f
+                                    pressed.forEach { dx += it.positionChange().x; dy += it.positionChange().y }
+                                    dx /= pressed.size; dy /= pressed.size
+                                    moved = moved || Offset(dx, dy).getDistance() > 0.5f
+                                    val k = p.scrollSpeed / PX_PER_NOTCH
+                                    val dir = if (p.naturalScroll) 1f else -1f
+                                    client.scrollBy(-dir * dx * k, dir * dy * k)
+                                } else if (maxFingers == 1) {
+                                    val ch = pressed[0]
+                                    val d = ch.positionChange()
+                                    total += d
+                                    if (!moved && total.getDistance() > viewConfiguration.touchSlop) moved = true
+                                    if (moved) {
+                                        val dt = (ch.uptimeMillis - ch.previousUptimeMillis).toFloat()
+                                        val (mx, my) = PointerMath.toHost(d.x, d.y, dt, p.sensitivity, p.accel, hw)
+                                        client.moveBy(mx, my)
+                                    }
+                                }
+                                event.changes.forEach { it.consume() }
                             }
-                            event.changes.forEach { it.consume() }
+                        } finally {
+                            // also when the gesture is cancelled (pad leaves the screen mid-drag): never leave the PC button held
+                            touching = false
+                            if (dragMode) client.buttonUp(MouseButton.Left)
                         }
-                        touching = false
                         if (dragMode) {
-                            client.buttonUp(MouseButton.Left)
                             lastTapEnd = 0
                         } else if (!moved && lastUp - first.uptimeMillis < TAP_MS) {
                             when (maxFingers) {
@@ -185,12 +189,15 @@ private fun HoldButton(label: String, button: MouseButton, client: ScreenClient,
                     down = true
                     client.buttonDown(button)
                     hp(button == MouseButton.Right)
-                    do {
-                        val e = awaitPointerEvent()
-                        e.changes.forEach { it.consume() }
-                    } while (e.changes.any { it.pressed })
-                    client.buttonUp(button)
-                    down = false
+                    try {
+                        do {
+                            val e = awaitPointerEvent()
+                            e.changes.forEach { it.consume() }
+                        } while (e.changes.any { it.pressed })
+                    } finally {
+                        client.buttonUp(button)
+                        down = false
+                    }
                 }
             },
         contentAlignment = Alignment.Center,

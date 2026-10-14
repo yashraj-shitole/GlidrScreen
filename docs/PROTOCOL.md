@@ -49,7 +49,7 @@ known-answer vectors (`host/test/crypto.test.js`, `SignalCryptoTest.kt`).
 | `req` | p | `sid`, `n` (device name), `ts` | phone wants a session. `sid` is random per attempt |
 | `offer` | h | `sid`, `sdp`, `host`, `v` | PC's offer, all ICE candidates included (no trickle) |
 | `answer` | p | `sid`, `sdp` | phone's answer, candidates included |
-| `busy` / `deny` | h | `sid` | another phone is connected / sharing is paused |
+| `busy` / `deny` | h | `sid`, `reason` (deny: `paused` or `no display`) | another phone is connected / connection refused |
 | `bye` | h or p | `sid`, `reason` | end of session |
 
 `from` is `"p"` (phone) or `"h"` (host/PC). Sessions are keyed by `sid`; the host ignores a `sid` it has seen and
@@ -79,9 +79,11 @@ PC to phone:
 | `{"t":"monitors","monitors":[...],"active":id}` | layout changed (plugged/unplugged/resolution) |
 | `{"t":"active","id","w","h"}` | the shared display changed |
 | `{"t":"thumb","id","w","h","jpg":"<base64 JPEG>"}` | preview of one monitor, every 1.5 s while requested |
+| `{"t":"control","on":bool}` | "Allow remote control" was switched on the PC during the session |
 | `{"t":"pong","n","ts"}` | answer to `ping` |
 
-`Monitor = {id, name, x, y, w, h, scale, primary}`.
+`Monitor = {id, name, x, y, w, h, scale, primary}`. `id` is Chromium's display id: on Windows an unsigned 32-bit
+hash that is often above 2^31, so parse it as a 64-bit integer.
 
 Phone to PC:
 
@@ -99,7 +101,7 @@ Phone to PC:
 | `{"t":"quality","p":"auto"/"low"/"balanced"/"high"}` | change preset |
 | `{"t":"ping","n","ts"}` | RTT probe |
 
-Input is ignored when the PC has "Allow remote control" off (`hello.control = false`; the phone shows *View only*).
+Input is ignored when the PC has "Allow remote control" off (`hello.control = false`, later `control`; the phone shows *View only*).
 The pointer is confined to the shared display; buttons and keys still held when the session ends are released.
 
 ## Security model

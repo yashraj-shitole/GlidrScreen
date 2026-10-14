@@ -8,6 +8,9 @@ import java.util.Base64
 
 const val DEFAULT_SIGNAL_BASE = "https://ntfy.sh"
 
+/** Name used until the PC tells us its own (a typed code carries no name). */
+const val UNNAMED_PC = "PC"
+
 /** A PC this phone can connect to. [key] is the 128-bit pairing secret (base64url). */
 data class PairedPc(
     val id: String,
@@ -36,7 +39,7 @@ object PairingParser {
         val key = Base64.getUrlDecoder().decode(q["k"] ?: return null)
         if (key.size != 16) null else PairingInfo(
             key,
-            q["n"]?.take(40)?.ifBlank { null } ?: "PC",
+            q["n"]?.take(40)?.ifBlank { null } ?: UNNAMED_PC,
             q["s"]?.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: DEFAULT_SIGNAL_BASE,
         )
     } catch (_: Exception) {
@@ -47,7 +50,7 @@ object PairingParser {
         val clean = code.filter { it.isLetterOrDigit() }
         if (clean.length < 26 || clean.any { it.lowercaseChar() !in "abcdefghijklmnopqrstuvwxyz234567" }) return null
         val key = SignalCrypto.unbase32(clean.take(26))
-        return if (key.size >= 16) PairingInfo(key.copyOf(16), "PC", DEFAULT_SIGNAL_BASE) else null
+        return if (key.size >= 16) PairingInfo(key.copyOf(16), UNNAMED_PC, DEFAULT_SIGNAL_BASE) else null
     }
 }
 

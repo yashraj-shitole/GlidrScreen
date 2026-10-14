@@ -62,6 +62,7 @@ fun ViewerScreen(
     val control by client.controlAllowed.collectAsState()
     val hostName by client.hostName.collectAsState()
     val videoSize by client.videoSize.collectAsState()
+    val diag by client.diag.collectAsState()
     var overlay by remember { mutableStateOf(Overlay.None) }
     val zoom = remember { VideoViewState() }
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -99,7 +100,7 @@ fun ViewerScreen(
                 }
                 if (switching) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("Switching display...") }
             }
-            StateOverlay(state, onRetry = client::retry, onExit = onExit)
+            StateOverlay(state, diag, onRetry = client::retry, onExit = onExit)
         }
     }
 
@@ -173,7 +174,7 @@ private fun TopBar(
 }
 
 @Composable
-private fun StateOverlay(state: ConnState, onRetry: () -> Unit, onExit: () -> Unit) {
+private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, onExit: () -> Unit) {
     val c = Gs.colors
     val text = when (state) {
         is ConnState.Connecting -> state.step + "..."
@@ -184,6 +185,7 @@ private fun StateOverlay(state: ConnState, onRetry: () -> Unit, onExit: () -> Un
     Box(Modifier.fillMaxSize().background(if (state is ConnState.Failed) c.bg else Color(0xB3000000)), contentAlignment = Alignment.Center) {
         Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Label(text, color = if (state is ConnState.Failed) c.bad else c.text, style = Gs.type.body)
+            if (diag.isNotEmpty() && state !is ConnState.Live) Label(diag, color = c.dim, style = Gs.type.mono)
             if (state is ConnState.Failed) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Pill("Back", onExit)
