@@ -9,6 +9,13 @@ Video goes **directly phone <-> PC over WebRTC** (24 fps, encrypted). There is n
 | Phone app + embeddable library | `android/` | Kotlin, Compose, WebRTC; `:screenview` is the library, `:app` a thin shell |
 | Design docs | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md), [PROTOCOL](docs/PROTOCOL.md) |
 
+## Download (v1.0.0)
+- **Phone app:** [GlidrScreen-1.0.0.apk](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v1.0.0/GlidrScreen-1.0.0.apk). Android 10 or newer; allow installing from your browser or file manager.
+- **PC app:** [GlidrScreen-1.0.0-win-x64.zip](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v1.0.0/GlidrScreen-1.0.0-win-x64.zip). Unzip anywhere and run `GlidrScreen.exe` (Windows 10 or newer, x64).
+
+All downloads are on the [Releases page](https://github.com/yashraj-shitole/GlidrScreen/releases). The APK is signed
+with a debug key and the PC app is not code-signed, so Windows SmartScreen warns on first run.
+
 ## Use it
 
 1. **PC:** `cd host && npm install && npm start` (or build an exe with `npm run dist`, output `host/dist/GlidrScreen-win32-x64/GlidrScreen.exe`).
@@ -81,7 +88,7 @@ Download button; nothing installs itself. The phone skips the check when Google 
 
 To publish: bump `version` in `host/package.json` and `versionName`/`versionCode` in `android/app/build.gradle.kts`,
 then create a GitHub release tagged `vX.Y.Z` with the phone `.apk` and the PC package (an `.exe` or a `*win*.zip` of
-`host/dist/GlidrScreen-win32-x64`) attached. Until the repo has a release, both apps say "no releases yet".
+`host/dist/GlidrScreen-win32-x64`) attached.
 
 ## Test
 
