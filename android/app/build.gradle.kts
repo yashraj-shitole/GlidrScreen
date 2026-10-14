@@ -13,8 +13,8 @@ android {
         applicationId = "com.yashraj.glidr.screen"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.0.1"
     }
 
     buildFeatures {
@@ -23,9 +23,11 @@ android {
 
     buildTypes {
         release {
+            // Whole-app R8. A packageScope limited to androidx/kotlin/kotlinx moved part of the Kotlin
+            // StringsKt facade out of kotlin.text, away from its package-private superclass, and the
+            // release build crashed on launch with IllegalAccessError.
             optimization {
                 enable = true
-                packageScope = setOf("androidx.**", "kotlin.**", "kotlinx.**")
             }
         }
     }
