@@ -16,10 +16,62 @@ Video goes **directly phone <-> PC over WebRTC** (24 fps, encrypted). There is n
 3. **Phone:** install the app (`cd android && gradlew.bat installDebug`), tap **Scan QR** (or **Enter code**).
 4. Pick the PC, tap **Connect**. Works on the same Wi-Fi or from any other network.
 
-On the phone: one finger moves the pointer, tap clicks, two-finger tap right-clicks, two fingers scroll, tap-then-drag drags,
-the right edge is a scroll strip. Chips **1 2** on the picture and the Displays / Next display buttons switch monitors;
-the Displays sheet shows every monitor with live previews in their real layout. Keyboard sheet: typing, modifiers,
-arrows, F-keys, shortcuts, media keys and any-language phrases. Pinch to zoom the picture; *Direct touch* clicks where you tap.
+## Features
+
+### Phone app
+
+**See the PC**
+* Live picture of the PC at 24 fps, hardware decoded. Pinch to zoom, drag to pan while zoomed, one tap to reset.
+* Rotate to landscape for a full-screen picture (system bars hide). The screen stays on while you are connected.
+* Status line with fps, resolution, bitrate, ping and the connection path (switch off with *Show stats*).
+* Stream quality: Auto, 540p, 720p or 1440p. Always 24 fps; the setting caps resolution and bitrate.
+
+**Trackpad**
+* Laptop-style gestures: one finger moves the pointer, tap clicks, two-finger tap right-clicks, three-finger tap
+  middle-clicks, two fingers scroll, tap-then-drag drags.
+* Scroll strip on the right edge of the pad.
+* Left and right mouse buttons under the pad. Hold one to keep it pressed, so they drag too.
+* *Direct touch*: tap the picture to click that exact spot on the PC, like a touchscreen.
+* Pointer speed (0.5x to 3.5x), pointer acceleration (Off / Low / Med / High), scroll speed and natural scrolling.
+
+**Multiple monitors**
+* Numbered chips (**1 2 ...**) on the picture jump straight to a monitor; *Next display* cycles through them.
+* The *Displays* sheet draws every monitor in its real layout with live previews. Tap one to view and control it.
+
+**Keyboard sheet**
+* Type with the phone keyboard; every character goes straight to the PC.
+* Latch Ctrl, Alt, Shift and Win for combos, plus Esc, Tab, Enter, Backspace, Delete, arrows, Home/End, PgUp/PgDn and F1 to F12.
+* One-tap Windows shortcuts: copy, paste, cut, undo, select all, save, find, Alt+Tab, show desktop, task view,
+  Task Manager, snip, lock, close window, refresh and full screen.
+* Media keys: volume, mute, previous, play/pause, next.
+* Type a phrase in any language (sent as Unicode text, so it is not limited to the PC's keyboard layout).
+
+**Connection**
+* Pair once by scanning a QR code (or typing the code / pasting the link). Paired PCs are listed; forget one any time.
+* Connects from any network, not only the same Wi-Fi, and reconnects on its own when the link drops.
+* Midnight (dark) and Paper (light) themes, haptics on clicks.
+* Update banner when a newer release is on GitHub.
+
+### PC app (Windows tray)
+* Runs quietly in the tray and can start with Windows.
+* *Pair a new phone* shows a QR code, a code and a copyable link. Lists paired phones and every monitor.
+* *Sharing* switch to pause or resume accepting connections; *Allow remote control* switch for a view-only mode
+  (the phone shows a "View only" tag).
+* Disconnect the phone from the panel or the tray menu.
+* Default quality (Auto / 540p / 720p / 1440p) and video codec (Auto prefers hardware H.264, or H.264 / VP8).
+* Advanced: PC name and your own signaling (ntfy) server.
+* Checks GitHub for updates and shows a download link.
+
+### Privacy and security
+* Video, mouse and keyboard go directly between phone and PC over WebRTC (DTLS-SRTP). No media server, no relay of ours.
+* The pairing key never leaves the two devices. The rendezvous server only passes three sealed setup messages
+  (AES-256-GCM, keys from HKDF-SHA256) and never sees the video or your input.
+* No account, no sign-up.
+
+### Embeddable
+`:screenview` is an Android library, so the viewer can be dropped into another app (embedding it in Glidr is planned,
+see [ARCHITECTURE](docs/ARCHITECTURE.md)).
+`:app` is a thin standalone shell around it with the `glidr://screen` deep link.
 
 ## Updates
 
