@@ -3,7 +3,8 @@
 // The main process owns signaling, input injection and pairing; this file only owns the peer connection.
 // A small "viewer" role is included so the host can self-test the whole protocol without a phone.
 const bridge = window.engineBridge;
-const FPS = 24;
+const DEFAULT_FPS = 24;
+// Fallback table; the host (src/media.js) normally sends the resolved fps / bitrate / height / contentHint.
 const QUALITY = {
   auto: { bitrate: 6_000_000, height: 1080 },
   low: { bitrate: 1_200_000, height: 540 },
@@ -12,24 +13,53 @@ const QUALITY = {
 };
 const GATHER_TIMEOUT_MS = 4000;
 
-let host = null; // {sid, pc, dc, sender, stream, preset, statsTimer, lastBytes, lastT}
+let host = null; // {sid, pc, dc, sender, stream, audioTrack, q, statsTimer, lastBytes, lastT}
 let viewer = null; // self-test only
 
 const emit = (o) => bridge.emit(o);
 
-async function capture(sourceId) {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      mandatory: {
-        chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId,
-        maxFrameRate: FPS, maxWidth: 2560, maxHeight: 1440,
-      },
+/** Effective settings from a start / quality command: fps per session, never a module constant. */
+function resolve(cmd) {
+  const preset = QUALITY[cmd.preset || cmd.quality] ? (cmd.preset || cmd.quality) : 'auto';
+  const base = QUALITY[preset];
+  const num = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
+  const saver = cmd.saver === true;
+  const fps = num(cmd.fps, saver ? 15 : DEFAULT_FPS);
+  return {
+    preset, saver, fps,
+    bitrate: num(cmd.bitrate, Math.round(base.bitrate * (saver ? 0.5 : 1))),
+    height: num(cmd.height, base.height),
+    // 'motion' keeps the frame rate and lets resolution give way under congestion; 'detail' does the opposite
+    contentHint: cmd.contentHint === 'detail' || cmd.contentHint === 'motion' ? cmd.contentHint : (saver || fps < 24 ? 'detail' : 'motion'),
+  };
+}
+
+/**
+ * Screen capture. With wantAudio the same getUserMedia call also asks for Windows loopback (system) audio;
+ * if that is refused the video-only capture is used and the failure is logged. Returns {stream, audioTrack}.
+ */
+async function capture(sourceId, q, wantAudio) {
+  const video = {
+    mandatory: {
+      chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId,
+      maxFrameRate: q.fps, maxWidth: 2560, maxHeight: 1440,
     },
-  });
-  const track = stream.getVideoTracks()[0];
-  track.contentHint = 'motion'; // keep the frame rate, let resolution give way under congestion
-  return stream;
+  };
+  let stream = null;
+  let audioTrack = null;
+  if (wantAudio) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { mandatory: { chromeMediaSource: 'desktop' } }, video });
+      audioTrack = stream.getAudioTracks()[0] || null;
+      if (!audioTrack) emit({ t: 'log', message: 'audio capture returned no audio track; sending video only' });
+    } catch (e) {
+      stream = null;
+      emit({ t: 'log', message: 'audio capture failed, sending video only: ' + String(e && e.message || e) });
+    }
+  }
+  if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: false, video });
+  stream.getVideoTracks()[0].contentHint = q.contentHint;
+  return { stream, audioTrack };
 }
 
 function waitGathered(pc) {
@@ -40,6 +70,12 @@ function waitGathered(pc) {
     const t = setTimeout(done, GATHER_TIMEOUT_MS);
     pc.addEventListener('icegatheringstatechange', on);
   });
+}
+
+function opusPreferences() {
+  const all = RTCRtpSender.getCapabilities('audio').codecs;
+  const opus = all.filter((c) => /opus/i.test(c.mimeType));
+  return opus.length ? opus : all;
 }
 
 function codecPreferences(pref) {
@@ -54,13 +90,21 @@ function codecPreferences(pref) {
 
 async function applyQuality() {
   if (!host?.sender) return;
-  const q = QUALITY[host.preset] || QUALITY.auto;
-  const srcH = host.sender.track?.getSettings().height || q.height;
+  const q = host.q;
+  const track = host.sender.track;
+  if (track) {
+    track.contentHint = q.contentHint;
+    // Best effort: the encoder's maxFramerate below is what actually limits the rate.
+    if (host.capFps !== q.fps) {
+      try { await track.applyConstraints({ frameRate: { max: q.fps } }); host.capFps = q.fps; } catch (err) { console.warn('frameRate constraint', err); }
+    }
+  }
+  const srcH = track?.getSettings().height || q.height;
   const p = host.sender.getParameters();
   if (!p.encodings || !p.encodings.length) p.encodings = [{}];
   const e = p.encodings[0];
   e.maxBitrate = q.bitrate;
-  e.maxFramerate = FPS;
+  e.maxFramerate = q.fps;
   e.scaleResolutionDownBy = Math.max(1, srcH / q.height);
   p.degradationPreference = 'maintain-framerate';
   try { await host.sender.setParameters(p); } catch (err) { console.warn('setParameters', err); }
@@ -68,13 +112,18 @@ async function applyQuality() {
 
 async function hostStart(cmd) {
   hostStop();
-  const stream = await capture(cmd.sourceId);
+  const q = resolve(cmd);
+  const { stream, audioTrack } = await capture(cmd.sourceId, q, cmd.audio === true);
   const pc = new RTCPeerConnection({ iceServers: cmd.iceServers, bundlePolicy: 'max-bundle' });
-  const s = { sid: cmd.sid, pc, stream, preset: cmd.quality || 'auto', dc: null, sender: null };
+  const s = { sid: cmd.sid, pc, stream, audioTrack, q, capFps: q.fps, dc: null, sender: null };
   host = s;
   const tr = pc.addTransceiver(stream.getVideoTracks()[0], { direction: 'sendonly', streams: [stream] });
   s.sender = tr.sender;
   try { tr.setCodecPreferences(codecPreferences(cmd.codec)); } catch (e) { console.warn('codec prefs', e); }
+  if (audioTrack) {
+    const at = pc.addTransceiver(audioTrack, { direction: 'sendonly', streams: [stream] });
+    try { at.setCodecPreferences(opusPreferences()); } catch (e) { console.warn('opus prefs', e); }
+  }
 
   const dc = pc.createDataChannel('ctl', { ordered: true });
   s.dc = dc;
@@ -89,7 +138,7 @@ async function hostStart(cmd) {
   await pc.setLocalDescription(await pc.createOffer());
   await applyQuality();
   await waitGathered(pc);
-  emit({ t: 'offer', sid: s.sid, sdp: pc.localDescription.sdp });
+  emit({ t: 'offer', sid: s.sid, sdp: pc.localDescription.sdp, audio: !!audioTrack });
 }
 
 async function hostAnswer(cmd) {
@@ -100,12 +149,13 @@ async function hostAnswer(cmd) {
 async function hostSwitch(cmd) {
   const s = host;
   if (!s || s.sid !== cmd.sid) return;
-  const stream = await capture(cmd.sourceId);
+  const { stream } = await capture(cmd.sourceId, s.q, false); // audio is system-wide: the running audio track stays
   if (host !== s) { stream.getTracks().forEach((t) => t.stop()); return; }
   const old = s.stream;
   await s.sender.replaceTrack(stream.getVideoTracks()[0]);
   s.stream = stream;
-  old.getTracks().forEach((t) => t.stop());
+  s.capFps = s.q.fps; // the new capture was opened with the current fps
+  old.getVideoTracks().forEach((t) => t.stop()); // not getTracks(): that would also stop the audio track
   await applyQuality();
   const st = stream.getVideoTracks()[0].getSettings();
   emit({ t: 'switched', sid: s.sid, monitorId: cmd.monitorId, w: st.width, h: st.height });
@@ -121,6 +171,7 @@ function hostStop(sid) {
   try { host.dc?.close(); } catch { /* ignore */ }
   try { host.pc.close(); } catch { /* ignore */ }
   host.stream.getTracks().forEach((t) => t.stop());
+  host.audioTrack?.stop();
   host = null;
 }
 
@@ -213,7 +264,7 @@ async function run(cmd) {
       case 'answer': await hostAnswer(cmd); break;
       case 'switch': await hostSwitch(cmd); break;
       case 'send': hostSend(cmd); break;
-      case 'quality': if (host) { host.preset = cmd.preset; await applyQuality(); } break;
+      case 'quality': if (host) { host.q = resolve(cmd); await applyQuality(); } break;
       case 'stop': hostStop(cmd.sid); break;
       case 'v-start': await viewerStart(cmd); break;
       case 'v-send': viewer?.dc?.send(cmd.data); break;
