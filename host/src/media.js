@@ -24,6 +24,9 @@ const SAVER_FPS = 15;
 const SAVER_BITRATE_FACTOR = 0.5;
 const FPS60_BITRATE_FACTOR = 1.4;
 
+// Delivery mode (`quality.mode`: auto | latency | clarity) lives with the adaptation logic; re-exported for host.js.
+const { normalizeMode, modeSettings } = require('./adaptation');
+
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 
 /** Any value that is not one of 15/24/30/60 becomes 24. */
@@ -63,4 +66,4 @@ function parseQualityMessage(m, currentPreset) {
   return resolveQuality({ preset, fps: m.fps, saver: m.saver === true });
 }
 
-module.exports = { PRESETS, FPS_CHOICES, DEFAULT_FPS, SAVER_FPS, normalizeFps, resolveQuality, parseQualityMessage };
+module.exports = { PRESETS, FPS_CHOICES, DEFAULT_FPS, SAVER_FPS, normalizeFps, normalizeMode, modeSettings, resolveQuality, parseQualityMessage };

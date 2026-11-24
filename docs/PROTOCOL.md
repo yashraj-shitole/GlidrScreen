@@ -87,6 +87,26 @@ The phone sends `{"t":"quality","p":<preset>,"fps":<n>,"saver":<bool>}`. `fps` m
   clamped value, so the phone should apply the table above (it is deterministic) or read it off the measured video.
 * A missing or unknown `p` is ignored (unknown) or keeps the current preset (missing).
 
+#### Delivery mode (`mode`)
+
+`quality` may also carry `"mode":"auto"|"latency"|"clarity"` (optional). It chooses how the host reacts to congestion;
+the preset above is always the ceiling and the host never exceeds it.
+
+| mode | degradationPreference | contentHint | adaptation |
+|------|-----------------------|-------------|------------|
+| `auto` (default) | `maintain-framerate` | from the fps rules above | steps down after 2 consecutive bad stats samples, up after 6 clean ones |
+| `latency` | `maintain-framerate` | `motion` | same ladder, steps down after 1 bad sample |
+| `clarity` | `maintain-resolution` | `detail` | never lowers resolution below the preset; only bitrate and frame rate give way |
+
+* A sample is taken every 2 s and is *bad* when the encoder reports `qualityLimitationReason` `bandwidth` or `cpu`, or
+  the RTT is over 250 ms. A step down first shrinks the picture (`scaleResolutionDownBy`, never below a 360p
+  equivalent), then lowers the bitrate; it is applied with `setParameters`, without renegotiation. After a failed
+  step up the next one waits twice as long (6, 12, 24, 48 samples), so a link that cannot carry the preset settles
+  instead of flapping.
+* A missing `mode` keeps the session's current mode (a new session starts in `auto`); an unknown value means `auto`.
+  Older hosts ignore the field, so a phone may always send it.
+* The mode is per session and not reported in `hello`; the host's own stats carry the active mode and adaptation step.
+
 ### Audio (optional)
 
 When the PC's `shareAudio` setting is on, the host captures system audio (Windows loopback) and adds it to the offer

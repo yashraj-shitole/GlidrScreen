@@ -241,7 +241,8 @@ class HostCore extends EventEmitter {
     const q = media.parseQualityMessage(m, s.quality);
     if (!q) return;
     s.quality = q.preset; s.fps = q.fps; s.saver = q.saver;
-    this.engine.send({ t: 'quality', sid: s.sid, ...q });
+    s.mode = media.normalizeMode(m.mode, s.mode); // missing keeps the session's mode, unknown -> 'auto'
+    this.engine.send({ t: 'quality', sid: s.sid, ...q, mode: s.mode });
   }
 
   #bounds(monitorId) {
