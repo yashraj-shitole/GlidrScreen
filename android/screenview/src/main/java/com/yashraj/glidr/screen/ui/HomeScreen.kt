@@ -21,6 +21,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,14 +30,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.yashraj.glidr.screen.ScreenViewModel
 import com.yashraj.glidr.screen.signal.PairedPc
+import com.yashraj.glidr.screen.signal.PcPresence
+import com.yashraj.glidr.screen.signal.PresenceText
 import com.yashraj.glidr.screen.signal.WakeOnLan
 import com.yashraj.glidr.screen.update.UpdateState
 
@@ -63,9 +70,19 @@ fun HomeScreen(
     update: UpdateUi? = null,
     onWake: (PairedPc) -> Unit = {},
     wakeNote: String? = null,
+    /** What each PC last said about itself, by PC id (see [PresenceText]); null = read it from the shared [ScreenViewModel]. */
+    presence: Map<String, PcPresence?>? = null,
+    /** Looks the PCs up again; null = the shared [ScreenViewModel]'s. */
+    onRefreshPresence: (() -> Unit)? = null,
 ) {
     val c = Gs.colors
     val context = LocalContext.current
+    // ScreenApp does not pass the presence arguments, so the home screen falls back to the same ViewModel it uses
+    val vm: ScreenViewModel? = if (presence == null || onRefreshPresence == null) viewModel<ScreenViewModel>() else null
+    val vmPresence = vm?.presence?.collectAsState()
+    val shownPresence = presence ?: vmPresence?.value ?: emptyMap()
+    val refreshPresence: () -> Unit = onRefreshPresence ?: { vm?.refreshPresence() }
+    LaunchedEffect(Unit) { refreshPresence() } // once whenever the list appears; no background polling
     var showCode by remember { mutableStateOf(false) }
     var scanError by remember { mutableStateOf<String?>(null) }
     var confirmForget by remember { mutableStateOf<PairedPc?>(null) }
@@ -123,6 +140,10 @@ fun HomeScreen(
                             Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
                                 Label(pc.name, maxLines = 1, style = Gs.type.body)
                                 Label(TimeText.lastConnected(System.currentTimeMillis(), pc.lastLive), color = c.dim, style = Gs.type.small)
+                                // no entry = the check is still running: show nothing extra
+                                if (shownPresence.containsKey(pc.id)) {
+                                    Label(PresenceText.describe(shownPresence[pc.id], System.currentTimeMillis()), color = c.dim, style = Gs.type.small)
+                                }
                             }
                             RoundIconButton(Ico.Edit, "Rename or forget ${pc.name}", { manage = pc })
                             Spacer(Modifier.size(Space.sm))
@@ -130,6 +151,12 @@ fun HomeScreen(
                         }
                         // a PC that shared its network address can be woken up first (the pill row)
                         if (pc.mac != null) Pill("Wake", { onWake(pc) }, Modifier.fillMaxWidth())
+                    }
+                }
+                item {
+                    // text button, 48 dp tall: check the PCs again
+                    PressBox(refreshPresence, Modifier.height(48.dp), "Refresh the PC status", background = Color.Transparent, border = false) {
+                        Label("Refresh", color = c.accent, modifier = Modifier.padding(horizontal = Space.md))
                     }
                 }
                 if (pcs.any { it.mac != null }) {

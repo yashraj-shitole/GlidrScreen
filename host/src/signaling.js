@@ -115,14 +115,14 @@ class Signaling extends EventEmitter {
     this.emit('message', { slotId: slot.id, msg, serverTime: (ev.time || 0) * 1000 });
   }
 
-  /** Seal and publish a message to the topic of the given key. */
-  async publish(keyB64, obj) {
+  /** Seal and publish a message to the topic of the given key. [timeoutMs] caps the request (default 10 s). */
+  async publish(keyB64, obj, timeoutMs = 10_000) {
     const { topic, encKey } = deriveSlot(Buffer.from(keyB64, 'base64url'));
     const res = await fetch(`${this.base}/${topic}`, {
       method: 'POST',
       body: seal(encKey, obj),
       headers: { 'Content-Type': 'text/plain', Cache: 'yes' },
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     if (!res.ok) throw new Error(`publish HTTP ${res.status}`);
   }
