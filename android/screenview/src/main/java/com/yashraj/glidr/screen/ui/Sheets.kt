@@ -56,6 +56,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.yashraj.glidr.screen.ViewerPrefs
+import com.yashraj.glidr.screen.input.InputProfile
+import com.yashraj.glidr.screen.input.matchingProfile
+import com.yashraj.glidr.screen.input.withProfile
 import com.yashraj.glidr.screen.net.Monitor
 import com.yashraj.glidr.screen.net.Quality
 import com.yashraj.glidr.screen.net.ScreenClient
@@ -133,7 +136,13 @@ private val MEDIA = listOf("Vol -" to "VolDown", "Vol +" to "VolUp", "Mute" to "
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: () -> Unit) {
+fun KeyboardSheet(
+    client: ScreenClient,
+    haptic: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+    prefs: ViewerPrefs = ViewerPrefs(),
+    onPrefs: ((ViewerPrefs) -> ViewerPrefs) -> Unit = {},
+) {
     val c = Gs.colors
     val latched: SnapshotStateList<String> = remember { mutableStateListOf() }
     var field by remember { mutableStateOf(TextFieldValue("")) }
@@ -201,8 +210,11 @@ fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: ()
                     KeyChip("Home") { press("Home") }; KeyChip("End") { press("End") }; KeyChip("PgUp") { press("PgUp") }; KeyChip("PgDn") { press("PgDn") }
                     for (i in 1..12) KeyChip("F$i") { press("F$i") }
                 }
-                1 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-                    SHORTCUTS.forEach { s -> KeyChip(s.label) { client.combo(s.keys); haptic(false) } }
+                1 -> Column(verticalArrangement = Arrangement.spacedBy(Space.md)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
+                        SHORTCUTS.forEach { s -> KeyChip(s.label) { client.combo(s.keys); haptic(false) } }
+                    }
+                    CustomShortcutsSection(prefs, onPrefs, client, haptic)
                 }
                 2 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     MEDIA.forEach { (label, key) -> KeyChip(label) { client.key(key); haptic(false) } }
@@ -257,6 +269,9 @@ fun SettingsSheet(
             Segmented(Quality.entries.map { it.label }, quality.ordinal, { client.setQuality(Quality.entries[it]) })
             Label("Always 24 fps. This caps the resolution and bitrate sent from the PC.", color = c.dim, style = Gs.type.small)
 
+            Label("Profile for this PC", color = c.dim, style = Gs.type.small)
+            Segmented(InputProfile.entries.map { it.label }, prefs.matchingProfile()?.ordinal ?: -1, { i -> onPrefs { it.withProfile(InputProfile.entries[i]) } })
+
             // label and slider sit together, so the label reads as belonging to the bar under it
             Column {
                 Label("Pointer speed  %.1fx".format(prefs.sensitivity), color = c.dim, style = Gs.type.small)
@@ -271,6 +286,12 @@ fun SettingsSheet(
 
             SettingRow("Natural scrolling", "Content follows your fingers", prefs.naturalScroll) { v -> onPrefs { it.copy(naturalScroll = v) } }
             SettingRow("Direct touch", "Tap the picture to click that spot", prefs.directTouch) { v -> onPrefs { it.copy(directTouch = v) } }
+            SettingRow("Precision mode", "A second resting finger slows the pointer", prefs.precision) { v -> onPrefs { it.copy(precision = v) } }
+            SettingRow("Sideways scroll strip", "Slide along the bottom edge of the pad", prefs.edgeScroll) { v -> onPrefs { it.copy(edgeScroll = v) } }
+            SettingRow("Corner right-click", "Tap the bottom-right corner of the pad", prefs.cornerClick) { v -> onPrefs { it.copy(cornerClick = v) } }
+            SettingRow("Left-handed", "Scroll strip on the left side", prefs.leftHanded) { v -> onPrefs { it.copy(leftHanded = v) } }
+            SettingRow("One-handed layout", "Display buttons next to the tools, in thumb reach", prefs.oneHanded) { v -> onPrefs { it.copy(oneHanded = v) } }
+            SettingRow("Simple gestures", "Buttons for middle click and scrolling", prefs.simpleGestures) { v -> onPrefs { it.copy(simpleGestures = v) } }
             SettingRow("Haptics", "Vibrate on clicks", prefs.haptics) { v -> onPrefs { it.copy(haptics = v) } }
             SettingRow("Show stats", "fps, resolution, bitrate and ping", prefs.showStats) { v -> onPrefs { it.copy(showStats = v) } }
             SettingRow("Light theme", "Paper instead of Midnight", prefs.light) { v -> onPrefs { it.copy(light = v) } }
@@ -290,7 +311,8 @@ fun SettingsSheet(
             Label("Trackpad gestures", color = c.dim, style = Gs.type.small)
             Label(
                 "Tap: click. Two-finger tap: right-click. Three-finger tap: middle-click. Two fingers: scroll. " +
-                    "Tap, then drag: drag. The strip on the right also scrolls. With Direct touch on, long-press right-clicks.",
+                    "Tap, then drag: drag. The side strip also scrolls. With Direct touch on, long-press right-clicks. " +
+                    "With a keyboard or mouse attached, they control the PC directly.",
                 color = c.dim, style = Gs.type.small,
             )
         }
