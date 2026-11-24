@@ -98,10 +98,11 @@ real phone and PC is still untested):
   8 presence ("PC last seen"), 9 hardware keyboard and mouse.
 * Tier 2: 11 file transfer (phone to PC, plus the Android share sheet), 12 encrypted pairing keys,
   14 connection self-test and a failure-stage line, 15 Wake-on-LAN, 16 lock-aware sessions,
-  18 edge zones and precision mode, 19 one-handed layout, 21 per-phone view-only and expiring access with guest
-  pairing, 22 timed pause, 23 automatic bandwidth adaptation with Auto / Fast / Sharp modes, 24 per-PC input
-  profiles, 25 accessibility (labels and simple-gesture buttons).
+  17 window sharing, 18 edge zones and precision mode, 19 one-handed layout, 20 app lock (PIN, no biometrics),
+  21 per-phone view-only and expiring access with guest pairing, 22 timed pause, 23 automatic bandwidth
+  adaptation with Auto / Fast / Sharp modes, 24 per-PC input profiles, 25 accessibility (labels and
+  simple-gesture buttons).
 * Tier 3: 33 `glidr-screen://` automation links (pause, resume, disconnect only).
 
-Not built: 10 installer and auto-update, 13 connect alert and session log (skipped on purpose), 17 window sharing,
-20 app lock, 26 AV1/VP9, 27-32 and 34-35.
+Not built: 10 installer and auto-update, 13 connect alert and session log (skipped on purpose), 26 AV1/VP9,
+27-32 and 34-35. App lock uses a PIN only: biometrics need a library the project does not use yet.

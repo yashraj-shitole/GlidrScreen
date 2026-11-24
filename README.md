@@ -65,11 +65,20 @@ with a debug key and the PC app is not code-signed, so Windows SmartScreen warns
 * Type a phrase in any language (sent as Unicode text, so it is not limited to the PC's keyboard layout).
 * Your own shortcuts: build combos (for example OBS or Premiere keys), pin up to four under the mouse buttons.
 
+**Windows and files**
+* *Displays* sheet has a *Windows* tab: share a single application window instead of a whole monitor. Input follows
+  the window, and it falls back to the main monitor if the window closes.
+* Send files to the PC from the viewer or from the Android share sheet (200 MB limit, saved in DownloadsGlidr on the
+  PC, never opened automatically; the PC can switch receiving off).
+
 **Clipboard**
 * Send the phone's clipboard text to the PC, paste the PC's clipboard on the phone, or keep them in sync. Text goes
   straight to the PC over the encrypted link, never through a server (256 KB limit, opt-in).
 
 **Connection**
+* Each PC card shows what it was last seen doing ("PC online", "went to sleep 12 min ago", "Glidr Screen was closed").
+* Optional *App lock*: a PIN (4-8 digits, stored only as a salted hash) guards the app and its paired PCs, with a
+  growing wait after wrong tries. There is no recovery: clearing the app data removes the lock and the pairings.
 * *Wake* button for PCs that advertise Wake-on-LAN (same Wi-Fi, and it must be enabled in the PC's BIOS and adapter).
 * When a connection fails, the screen says how far it got (reached the signaling server, request sent, offer received...).
 * Pair once by scanning a QR code (or typing the code / pasting the link). Paired PCs are listed; forget one any time.
