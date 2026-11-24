@@ -240,6 +240,55 @@ The pointer is confined to the shared display; buttons and keys still held when 
 Unknown messages are ignored by both sides, so the protocol version stays 1: a phone talking to an older host simply
 never receives `clip`, `cur` or `locked`, and an older phone never sends the new messages.
 
+## Window sharing
+
+Besides whole monitors, the phone can view **one application window**. Everything is optional: an older host ignores
+the messages below (the phone sees no `windows` list and shows only the displays), and an older phone never sends them.
+
+Phone to PC:
+
+| message | meaning |
+|---------|---------|
+| `{"t":"windows","on":bool}` | start / stop the window list and window previews (like `thumbs`). The phone turns it on while its window picker is open |
+| `{"t":"source","kind":"window","id":"<window id>"}` | share this window. `id` is an `id` from the latest `windows` list |
+| `{"t":"source","kind":"monitor","id":<monitor id>}` | share this monitor: exactly the same as `{"t":"monitor","id"}` |
+
+PC to phone:
+
+| message | meaning |
+|---------|---------|
+| `{"t":"windows","list":[{"id","title","w","h"}]}` | the windows on offer, front to back |
+| `{"t":"wthumb","id","w","h","jpg":"<base64 JPEG>"}` | preview of one window |
+| `{"t":"active","kind":"window","id","title","w","h"}` | the shared source is now this window. `w` x `h` is the captured size. For monitors the `active` message is unchanged (no `kind`) |
+| `{"t":"source-error","id","reason":"gone"}` | the window could not be shared (see below) |
+
+* **List.** While `windows` is on the host sends the list immediately and then re-checks every 2 s, sending a new
+  `windows` message **only when something changed** (a window opened or closed, a title or size changed). `id` is an
+  opaque string (today `window:<HWND>:0`, the Electron capture id); treat it as a token, never parse it. `title` is the
+  window title with control characters removed, at most 80 characters. `w` / `h` are the window's size in physical pixels.
+  At most **30** windows are listed. The host skips windows with an empty title, minimised windows, windows smaller than
+  120 px in either direction, and its own windows (Glidr Screen).
+* **Previews.** Every 3 s the host sends a `wthumb` for each of the **first 12** windows of the list: JPEG quality 55, at
+  most 384x216, aspect ratio kept. Both streams stop when `windows` is turned off or the session ends, and start again
+  from scratch when it is turned on again.
+* **Untrusted text.** Window titles come from other programs (a web page chooses its own tab title). A phone must show
+  them as plain text. The host never writes a title to a log.
+* **Switching.** The host accepts an `id` only if it is in the list it last computed (when the list was never started it
+  looks once itself) **and** the window still exists and is not minimised. Otherwise it answers `source-error` with
+  `reason` `gone` and changes nothing. The same answer is sent if the capture of the window then fails. On success the
+  video track is replaced without renegotiation, like a monitor switch, and `active` with `kind` `window` follows.
+  Audio stays the system-wide track.
+* **Input.** While a window is shared, `abs` (0..1) maps to the window's **current** bounds, and pointer movement is
+  clamped to them, so the phone cannot click outside the shared window. The host reads the bounds with `GetWindowRect`
+  (refined with the DWM visible frame so the invisible resize border is not counted) at most every 250 ms, so a moved or
+  resized window keeps working. `cur` is normalised to the window as well. When a window is chosen the host also brings
+  it to the front (best effort), because a click is delivered to whatever is on top at that screen position.
+* **Fall back.** When the shared window is closed or minimised the host sends `source-error` (`reason` `gone`, `id` of
+  that window) **once** and switches back to the primary monitor, which produces the normal monitor `active` message.
+  After that the window is forgotten; the phone may pick it (or another) again from the list.
+* The `monitors` message and `hello` keep describing displays; `active` there is the last shared **monitor** while a
+  window is shown. A phone tracks "what is shared" from the `active` messages it receives.
+
 ## File transfer (phone to PC)
 
 The phone can send files to the PC. The PC creates a **second** data channel next to `ctl`, labelled `files` (reliable,

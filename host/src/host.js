@@ -6,6 +6,7 @@ const media = require('./media');
 const { ClipboardSync, CursorStream } = require('./sync');
 const permissions = require('./permissions');
 const { FileReceiver } = require('./files');
+const Windows = require('./windows');
 const path = require('path');
 
 const MAX_TIMER_MS = 2 ** 31 - 1; // setTimeout fires at once above this
@@ -17,6 +18,11 @@ const PROTOCOL = 1;
 // Electron's clipboard and the koffi-backed cursor reader are required lazily so unit tests can load this file.
 const defaultClipboard = () => require('electron').clipboard;
 const defaultCursorPos = () => require('./input').InputInjector.cursorPos();
+const defaultWindowRect = (hwnd) => require('./input').windowRect(hwnd);
+const defaultFocusWindow = (hwnd) => require('./input').focusWindow(hwnd);
+const WINDOW_LIST_MS = 2000; // `windows` list refresh while the phone has it on
+const WINDOW_THUMB_MS = 3000; // `wthumb` previews
+const WINDOW_POLL_MS = 100; // timer of the shared-window follower; the tracker itself looks at most every 250 ms
 /** Received files go to <Downloads>\Glidr and nowhere else. */
 const defaultFilesDir = () => path.join(require('electron').app.getPath('downloads'), 'Glidr');
 
@@ -29,8 +35,10 @@ class HostCore extends EventEmitter {
    * @param clipboard optional {readText, writeText} (tests); defaults to Electron's clipboard
    * @param cursorPos optional () => {x,y} (tests); defaults to InputInjector.cursorPos
    * @param filesDir optional () => string (tests): where received files are saved; defaults to Downloads\Glidr
+   * @param windowRect optional (hwnd) => {x,y,w,h,iconic}|null (tests): defaults to input.windowRect (GetWindowRect via koffi)
+   * @param focusWindow optional (hwnd) => bool (tests): defaults to input.focusWindow
    */
-  constructor({ store, signaling, engine, input, clipboard, cursorPos, filesDir }) {
+  constructor({ store, signaling, engine, input, clipboard, cursorPos, filesDir, windowRect, focusWindow }) {
     super();
     this.store = store;
     this.sig = signaling;
@@ -39,12 +47,18 @@ class HostCore extends EventEmitter {
     this.clipboard = clipboard || null;
     this.cursorPos = cursorPos || defaultCursorPos;
     this.filesDir = filesDir || defaultFilesDir;
+    this.windowRectFn = windowRect || defaultWindowRect;
+    this.focusWindowFn = focusWindow || defaultFocusWindow;
     this.locked = false;
     this.sess = null;
     this.seen = new Set();
     this.stats = null;
     this.sigStatus = 'idle';
     this.thumbTimer = null;
+    this.winTimer = null; // window list stream
+    this.winThumbTimer = null;
+    this.winLatest = null; // newest list computed: the ids the phone may ask for
+    this.winDetect = new Windows.ChangeDetector();
 
     this.sig.on('message', (m) => this.#onSignal(m));
     this.sig.on('status', (s) => { this.sigStatus = s; this.#changed(); });
@@ -203,6 +217,7 @@ class HostCore extends EventEmitter {
       case 'files-bin': s.files?.onBinary(e.data); break; // `files` channel, binary chunk
       case 'files-close': s.files?.abort('files channel closed', true); break;
       case 'switched':
+        if (e.kind === 'window') { this.#windowSwitched(s, e); break; }
         s.monitorId = e.monitorId;
         this.#send({ t: 'active', id: e.monitorId, w: e.w, h: e.h });
         this.#changed();
@@ -214,6 +229,10 @@ class HostCore extends EventEmitter {
       case 'error':
         this.emit('log', `engine error in ${e.where}: ${e.message}`);
         if (e.where === 'start') this.endSession('capture failed: ' + e.message, true);
+        if (e.where === 'switch' && s?.pending) { // the window could not be captured: nothing changed, tell the phone
+          this.#send({ t: 'source-error', id: s.pending.id, reason: 'gone' });
+          s.pending = null;
+        }
         break;
       case 'log':
         this.emit('log', 'engine: ' + e.message);
@@ -267,7 +286,7 @@ class HostCore extends EventEmitter {
     if (!s.cursor) {
       s.cursor = new CursorStream({
         getPos: () => this.cursorPos(),
-        getBounds: () => this.#bounds(s.monitorId), // follows monitor switches
+        getBounds: () => (s.window && s.winTracker?.bounds) || this.#bounds(s.monitorId), // follows monitor and window switches
         send: ({ x, y }) => this.#send({ t: 'cur', x, y }),
       });
     }
@@ -326,7 +345,12 @@ class HostCore extends EventEmitter {
       case 'ping': this.#send({ t: 'pong', n: m.n, ts: m.ts }); break;
       case 'monitors': this.#send({ t: 'monitors', monitors: displays.list(), active: s.monitorId }); break;
       case 'monitor': await this.switchMonitor(Number(m.id)); break;
+      case 'source':
+        if (m.kind === 'window') await this.switchWindow(m.id);
+        else if (m.kind === 'monitor') await this.switchMonitor(Number(m.id)); // same as `monitor`
+        break;
       case 'thumbs': this.#thumbs(!!m.on); break;
+      case 'windows': this.#windows(m.on === true); break;
       case 'quality': this.#setQuality(s, m); break;
       case 'clip': if (control && s.live) this.#clipSync(s).fromPhone(m.s); break; // never log the text
       case 'clipsync': if (s.live) this.#clipSync(s).setOn(m.on === true); break;
@@ -348,15 +372,135 @@ class HostCore extends EventEmitter {
     if (!s || !s.live) return;
     const d = displays.list().find((x) => x.id === id);
     if (!d) return;
+    this.#stopWindow(s); // the window (if one was shared) is no longer the source
+    s.pending = null;
     this.input.reset();
     this.input.setBounds({ x: d.x, y: d.y, w: d.w, h: d.h });
-    const cur = require('./input').InputInjector.cursorPos();
+    const cur = this.cursorPos();
     if (cur.x < d.x || cur.y < d.y || cur.x >= d.x + d.w || cur.y >= d.y + d.h) {
       this.input.moveTo(d.x + d.w / 2, d.y + d.h / 2);
     }
     const sourceId = await displays.sourceIdFor(id);
     if (this.sess !== s) return;
     this.engine.send({ t: 'switch', sid: s.sid, monitorId: id, sourceId });
+  }
+
+  // -------------------------------------------------------------- window sharing
+
+  #rect(hwnd) {
+    try { return this.windowRectFn(hwnd) || null; } catch { return null; } // Win32 trouble counts as "gone"
+  }
+
+  /**
+   * Phone asked to share one window. The id must be in the latest list we showed (or, when the list was never
+   * started, in a fresh one) and the window must still exist and not be minimised; otherwise `source-error` gone.
+   */
+  async switchWindow(id) {
+    const s = this.sess;
+    if (!s || !s.live || typeof id !== 'string' || id.length > 200) return;
+    let entry = Windows.validate(id, this.winLatest);
+    if (!entry && !this.winLatest) {
+      try { entry = Windows.validate(id, await displays.windowList((h) => this.#rect(h))); } catch { entry = null; }
+      if (this.sess !== s) return;
+    }
+    const hwnd = Windows.parseHwnd(id);
+    const d = entry && hwnd !== null ? Windows.decide(this.#rect(hwnd)) : { action: 'gone' };
+    if (d.action !== 'ok') { this.#send({ t: 'source-error', id, reason: 'gone' }); return; }
+    this.input.reset();
+    this.focusWindowFn(hwnd); // best effort: the pointer must land on this window, not on one covering it
+    // Nothing is committed until the engine confirms the new capture ('switched'): a failed capture changes nothing.
+    s.pending = { kind: 'window', id, hwnd, title: entry.title, bounds: d.bounds };
+    this.engine.send({ t: 'switch', sid: s.sid, kind: 'window', id, monitorId: null, sourceId: id });
+  }
+
+  /** The engine now captures the window: input follows its bounds, and the phone is told what it is looking at. */
+  #windowSwitched(s, e) {
+    const p = s.pending;
+    if (!p || p.id !== e.id) return; // superseded by another switch
+    s.pending = null;
+    s.window = { id: p.id, hwnd: p.hwnd, title: p.title };
+    s.winTracker = new Windows.WindowTracker({ rectOf: (h) => this.#rect(h) });
+    s.winTracker.start(p.hwnd, p.bounds);
+    clearInterval(s.winPoll);
+    s.winPoll = setInterval(() => this.pollWindow(), WINDOW_POLL_MS);
+    this.input.setBounds(p.bounds);
+    const cur = this.cursorPos();
+    if (cur.x < p.bounds.x || cur.y < p.bounds.y || cur.x >= p.bounds.x + p.bounds.w || cur.y >= p.bounds.y + p.bounds.h) {
+      this.input.moveTo(p.bounds.x + p.bounds.w / 2, p.bounds.y + p.bounds.h / 2);
+    }
+    this.#send({ t: 'active', kind: 'window', id: p.id, title: p.title, w: e.w, h: e.h });
+    this.#changed();
+  }
+
+  /** Follows the shared window (at most every 250 ms): new bounds go to the input clamp; closed or minimised falls back. */
+  pollWindow() {
+    const s = this.sess;
+    if (!s?.window || !s.winTracker) return;
+    const r = s.winTracker.poll();
+    if (r.state === 'ok' && r.moved) this.input.setBounds(r.bounds);
+    else if (r.state === 'gone') this.#windowGone(s);
+  }
+
+  /** The shared window was closed or minimised: tell the phone once, then show the primary monitor again. */
+  #windowGone(s) {
+    const id = s.window.id;
+    this.#stopWindow(s);
+    this.#send({ t: 'source-error', id, reason: 'gone' });
+    const monitors = displays.list();
+    const primary = monitors.find((d) => d.primary) || monitors[0];
+    if (primary) this.switchMonitor(primary.id).catch((err) => this.emit('log', 'window fallback: ' + err.message));
+    this.#changed();
+  }
+
+  #stopWindow(s) {
+    clearInterval(s.winPoll);
+    s.winPoll = null;
+    s.winTracker?.stop();
+    s.window = null;
+  }
+
+  /** Window list (every 2 s, only when it changed) and previews (every 3 s, first 12) while the phone has them on. */
+  #windows(on) {
+    this.#stopWindowStream();
+    if (!on || !this.sess?.live) return;
+    const s = this.sess;
+    this.winDetect.reset();
+    let listBusy = false;
+    let thumbBusy = false;
+    const thumbTick = async () => {
+      if (this.sess !== s || thumbBusy || !this.winLatest) return;
+      thumbBusy = true;
+      try {
+        const ids = Windows.thumbIds(this.winLatest);
+        if (ids.length) {
+          for (const t of await displays.windowThumbnails(ids)) {
+            if (this.sess === s && this.winTimer) this.#send({ t: 'wthumb', ...t });
+          }
+        }
+      } catch (e) { this.emit('log', 'window previews: ' + e.message); } finally { thumbBusy = false; }
+    };
+    let first = true;
+    const listTick = async () => {
+      if (this.sess !== s || listBusy) return;
+      listBusy = true;
+      try {
+        const list = await displays.windowList((h) => this.#rect(h));
+        if (this.sess !== s || !this.winTimer) return; // ended or switched off while looking
+        this.winLatest = list;
+        if (this.winDetect.changed(list)) this.#send({ t: 'windows', list });
+        if (first) { first = false; thumbTick(); }
+      } catch (e) { this.emit('log', 'windows: ' + e.message); } finally { listBusy = false; }
+    };
+    this.winTimer = setInterval(listTick, WINDOW_LIST_MS);
+    this.winThumbTimer = setInterval(thumbTick, WINDOW_THUMB_MS);
+    listTick();
+  }
+
+  #stopWindowStream() {
+    clearInterval(this.winTimer);
+    clearInterval(this.winThumbTimer);
+    this.winTimer = null;
+    this.winThumbTimer = null;
   }
 
   /** "Allow remote control" or the phone's "View only" was switched on the PC: tell the phone so it shows (or clears) "View only". */
@@ -398,6 +542,10 @@ class HostCore extends EventEmitter {
     clearTimeout(s.limitTimer);
     clearInterval(this.thumbTimer);
     this.thumbTimer = null;
+    this.#stopWindowStream();
+    this.#stopWindow(s);
+    this.winLatest = null;
+    s.pending = null;
     s.clip?.stop();
     s.cursor?.stop();
     s.files?.abort('session ended', false); // partial file deleted, nobody left to tell

@@ -93,6 +93,20 @@ class ScreenClient(
     val switching: StateFlow<Boolean> = _switching.asStateFlow()
     private val _thumbs = MutableStateFlow<Map<Long, Bitmap>>(emptyMap())
     val thumbs: StateFlow<Map<Long, Bitmap>> = _thumbs.asStateFlow()
+    private val _windows = MutableStateFlow<List<PcWindow>>(emptyList())
+    /** Application windows the PC offers, front to back; only filled while [setWindowList] is on. */
+    val windows: StateFlow<List<PcWindow>> = _windows.asStateFlow()
+    private val _windowThumbs = MutableStateFlow<Map<String, Bitmap>>(emptyMap())
+    val windowThumbs: StateFlow<Map<String, Bitmap>> = _windowThumbs.asStateFlow()
+    private val _activeKind = MutableStateFlow(SourceKind.Monitor)
+    /** Whether the PC is sharing a whole monitor or one window (from the host's `active` messages). */
+    val activeKind: StateFlow<SourceKind> = _activeKind.asStateFlow()
+    private val _activeWindow = MutableStateFlow<ActiveSource.Window?>(null)
+    /** The shared window (id, title, size) while [activeKind] is [SourceKind.Window], else null. */
+    val activeWindow: StateFlow<ActiveSource.Window?> = _activeWindow.asStateFlow()
+    private val _sourceMessage = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    /** One-shot text when the PC could not share a window ("That window is gone"), also when it fell back to a monitor. */
+    val sourceMessage: SharedFlow<String> = _sourceMessage.asSharedFlow()
     private val _stats = MutableStateFlow<LinkStats?>(null)
     val stats: StateFlow<LinkStats?> = _stats.asStateFlow()
     private val _rtt = MutableStateFlow<Int?>(null)
@@ -169,6 +183,7 @@ class ScreenClient(
     /** Files being sent to the PC (see [sendFiles]): name, progress and result of each. */
     val fileTransfers: StateFlow<FileQueueState> = files.state
     @Volatile private var wantThumbs = false
+    @Volatile private var wantWindows = false
     private var pingN = 0
 
     private val accLock = Any()
@@ -395,6 +410,10 @@ class ScreenClient(
         _stats.value = null
         _rtt.value = null
         _switching.value = false
+        _windows.value = emptyList()
+        _windowThumbs.value = emptyMap()
+        _activeKind.value = SourceKind.Monitor
+        _activeWindow.value = null
         _locked.value = false
         _cursor.value = null
         _lastClip.value = null
@@ -570,6 +589,7 @@ class ScreenClient(
             }
         }
         if (wantThumbs) send(Msg.thumbs(true))
+        if (wantWindows) send(Msg.windows(true))
     }
 
     // ------------------------------------------------------------------ host -> phone
@@ -580,6 +600,8 @@ class ScreenClient(
             "hello" -> {
                 _monitors.value = Monitor.parseAll(m.optJSONArray("monitors"))
                 _active.value = m.optLong("active")
+                _activeKind.value = SourceKind.Monitor // a new session starts on a monitor
+                _activeWindow.value = null
                 _control.value = m.optBoolean("control", true)
                 _quality.value = Quality.of(m.optString("quality"))
                 applyHostName(m.optString("host"))
@@ -591,13 +613,44 @@ class ScreenClient(
             }
             "monitors" -> {
                 _monitors.value = Monitor.parseAll(m.optJSONArray("monitors"))
-                if (m.has("active")) _active.value = m.optLong("active")
+                // while a window is shared `active` here is only the last monitor: keep "no monitor" selected
+                if (m.has("active") && _activeKind.value == SourceKind.Monitor) _active.value = m.optLong("active")
             }
             "control" -> _control.value = m.optBoolean("on", true)
-            "active" -> {
-                _active.value = m.optLong("id")
+            "active" -> when (val a = ActiveSource.parse(m)) {
+                is ActiveSource.Display -> {
+                    _activeKind.value = SourceKind.Monitor
+                    _activeWindow.value = null
+                    _active.value = a.id
+                    _switching.value = false
+                    _videoSize.value = a.w to a.h
+                }
+                is ActiveSource.Window -> {
+                    _activeKind.value = SourceKind.Window
+                    _activeWindow.value = a
+                    _active.value = null // no monitor is the shared one now
+                    _switching.value = false
+                    _videoSize.value = a.w to a.h
+                }
+                null -> _switching.value = false
+            }
+            "windows" -> {
+                val list = PcWindow.parseAll(m.optJSONArray("list"))
+                _windows.value = list
+                val keep = list.mapTo(HashSet()) { it.id }
+                _windowThumbs.update { old -> old.filterKeys { it in keep } } // previews of closed windows go away
+            }
+            "wthumb" -> WindowThumb.parse(m)?.let { th ->
+                scope.launch(Dispatchers.Default) {
+                    val bytes = try { Base64.decode(th.jpg, Base64.DEFAULT) } catch (_: IllegalArgumentException) { return@launch }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { bmp ->
+                        if (_windows.value.any { it.id == th.id }) _windowThumbs.update { it + (th.id to bmp) }
+                    }
+                }
+            }
+            "source-error" -> SourceError.parse(m)?.let { e ->
                 _switching.value = false
-                _videoSize.value = m.optInt("w") to m.optInt("h")
+                _sourceMessage.tryEmit(e.message)
             }
             "thumb" -> scope.launch(Dispatchers.Default) {
                 val bytes = Base64.decode(m.optString("jpg"), Base64.DEFAULT)
@@ -667,6 +720,21 @@ class ScreenClient(
         _switching.value = true
         send(Msg.monitor(id))
         scope.launch { delay(8_000); _switching.value = false } // never leave the spinner stuck
+    }
+
+    /** Share one application window of the PC (an id from [windows]). Answered by `active`, or by [sourceMessage]. */
+    fun shareWindow(id: String) {
+        if (id == _activeWindow.value?.id) return
+        _switching.value = true
+        send(Msg.source(SourceKind.Window, id))
+        scope.launch { delay(8_000); _switching.value = false } // never leave the spinner stuck
+    }
+
+    /** Ask the PC for its window list and previews while [on] (re-asked after a reconnect). Turn it off when the picker closes. */
+    fun setWindowList(on: Boolean) {
+        wantWindows = on
+        if (!on) { _windows.value = emptyList(); _windowThumbs.value = emptyMap() }
+        send(Msg.windows(on))
     }
 
     fun setThumbnails(on: Boolean) {
