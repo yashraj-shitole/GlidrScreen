@@ -21,7 +21,8 @@ const DEFAULTS = {
   codec: 'auto', // auto | h264 | vp8
   stun: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
   turn: null, // optional {urls, username, credential}; off by default, TURN would relay media through a server
-  slots: [], // {id, key(b64url), name, createdAt, claimedAt, lastSeen, needsRepair?}
+  // {id, key(b64url), name, createdAt, claimedAt, lastSeen, needsRepair?, viewOnly?, expiresAt?, maxSessionMin?}
+  slots: [],
 };
 
 class Store {
@@ -106,8 +107,12 @@ class Store {
     if (before !== this.data.slots.length) this.save();
   }
 
-  /** New one-time pairing slot; becomes a permanent device slot once a phone claims it. */
-  createSlot() {
+  /**
+   * New one-time pairing slot; becomes a permanent device slot once a phone claims it.
+   * [opts] (all optional, see permissions.js): viewOnly, maxSessionMin, and expireAfterClaimMs, which turns into
+   * `expiresAt` when a phone claims the slot, so a guest's hour starts when pairing starts, not when the code is shown.
+   */
+  createSlot(opts = {}) {
     this.pruneSlots();
     // keep at most one open (unclaimed) pairing at a time
     this.data.slots = this.data.slots.filter((s) => s.claimedAt);
@@ -116,6 +121,10 @@ class Store {
       key: newKey().toString('base64url'),
       name: '', createdAt: Date.now(), claimedAt: 0, lastSeen: 0,
     };
+    const pos = (v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+    if (opts.viewOnly === true) slot.viewOnly = true;
+    if (pos(opts.maxSessionMin)) slot.maxSessionMin = pos(opts.maxSessionMin);
+    if (pos(opts.expireAfterClaimMs)) slot.expireAfterClaimMs = pos(opts.expireAfterClaimMs);
     this.data.slots.push(slot);
     this.save();
     return slot;
@@ -126,7 +135,11 @@ class Store {
   claim(id, name) {
     const s = this.slot(id);
     if (!s) return;
-    if (!s.claimedAt) s.claimedAt = Date.now();
+    if (!s.claimedAt) {
+      s.claimedAt = Date.now();
+      if (s.expireAfterClaimMs > 0) s.expiresAt = s.claimedAt + s.expireAfterClaimMs; // guest: the clock starts now
+      delete s.expireAfterClaimMs;
+    }
     if (name) s.name = name.slice(0, 48);
     s.lastSeen = Date.now();
     this.save();

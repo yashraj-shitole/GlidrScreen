@@ -24,6 +24,12 @@ glidr://screen?v=1&k=<base64url key>&n=<PC name>&s=<signaling base URL>
 code: base32(key), e.g. AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4
 ```
 
+The link may carry two optional Wake-on-LAN parameters, appended after `s`: `&m=<12 hex digits, upper case>` (the PC's
+network adapter MAC address) and `&b=<IPv4>` (that adapter's directed broadcast address, e.g. `192.168.1.255`). The host
+adds them only when it found a physical adapter and **both** are valid; a phone ignores a link where only one is present
+or either does not match `[0-9A-Fa-f]{12}` / dotted-quad IPv4. Links without them are exactly the old format. See
+*Wake-on-LAN* below.
+
 Unclaimed pairings expire after 15 minutes. After the first request the slot is permanent until the PC removes it
 ("Paired phones" -> Remove). One slot per phone; each has its own key and topic.
 
@@ -49,14 +55,41 @@ known-answer vectors (`host/test/crypto.test.js`, `SignalCryptoTest.kt`).
 | `req` | p | `sid`, `n` (device name), `ts` | phone wants a session. `sid` is random per attempt |
 | `offer` | h | `sid`, `sdp`, `host`, `v` | PC's offer, all ICE candidates included (no trickle) |
 | `answer` | p | `sid`, `sdp` | phone's answer, candidates included |
-| `busy` / `deny` | h | `sid`, `reason` (deny: `paused` or `no display`) | another phone is connected / connection refused |
-| `bye` | h or p | `sid`, `reason` | end of session |
+| `busy` / `deny` | h | `sid`, `reason` (deny: `paused`, `no display` or `expired`) | another phone is connected / connection refused. `expired`: this phone's access has ended (see *Per-phone permissions*); the pairing is kept on the PC and works again once access is renewed there |
+| `bye` | h or p | `sid`, `reason` | end of session. From the host `reason` may be `time limit`: the phone's per-session limit or its access period ran out |
 
 `from` is `"p"` (phone) or `"h"` (host/PC). Sessions are keyed by `sid`; the host ignores a `sid` it has seen and
 requests older than 90 s. A new `req` from the same slot replaces its previous session (reconnect after a network
 change). Different slot while a session is live: `busy`.
 
 Non-trickle ICE keeps a connection to **3 rendezvous messages** and the SDP in one frame.
+
+## Per-phone permissions and guest links
+
+These are settings of the PC's slot for a phone; the protocol only shows their effect. All are optional, and a slot
+without them has full access forever.
+
+* `viewOnly`: the phone may watch but not control. `hello.control` is `false` (and `control` `{"on":false}` is sent when
+  the PC toggles it live), and input and `clip` messages are ignored, exactly as when the PC's global "Allow remote
+  control" is off. Control is allowed only when the global switch is on **and** the phone is not view only.
+* `expiresAt` (ms epoch, 0 = never): after it, a `req` from that phone is answered with `deny` reason `expired`. A
+  session still running at that moment ends with `bye` reason `time limit`.
+* `maxSessionMin` (0 = unlimited): a session ends with `bye` reason `time limit` that many minutes after the request was
+  accepted.
+* Guest pairing ("Pair a guest"): an ordinary pairing whose slot is `viewOnly`, has `maxSessionMin` 60 and gets
+  `expiresAt` = 1 hour after the phone **claims** it (first `req`), not after the QR code was shown. Guest links never
+  contain the `m` / `b` Wake-on-LAN parameters.
+
+A phone should treat `deny` `expired` and `bye` `time limit` as final until the user renews access on the PC, and
+should not retry in a loop.
+
+## Wake-on-LAN
+
+The phone can wake a sleeping PC on the same LAN by sending a standard magic packet (6 x `FF`, then the MAC from `m`
+repeated 16 times) as a UDP broadcast to `b`, port 9. The host picks the adapter for `m` / `b` from the OS interface
+list, skipping loopback, virtual and VPN adapters (vEthernet, Hyper-V, VirtualBox, VMware, Docker, WSL, TAP,
+Tailscale and similar), all-zero MACs and link-local addresses, and preferring a private IPv4 address. It only works
+when Wake-on-LAN is enabled in the PC's BIOS and in the network adapter's settings, and from the same network.
 
 ## Media
 

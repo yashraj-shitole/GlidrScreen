@@ -29,6 +29,9 @@ const { repairAutostart } = require('./autostart');
 const { PauseTimer, untilLabel, HOUR_MS } = require('./pausetimer');
 const { KeepAwake, wirePower } = require('./power');
 const links = require('./links');
+const permissions = require('./permissions');
+const wol = require('./wol');
+const diagnose = require('./diagnose');
 
 let store, signaling, input, core, engineWin, uiWin, tray, updates, pauseTimer, keepAwake;
 let notifiedVersion = null;
@@ -110,6 +113,20 @@ function runLink(url) {
   });
 }
 
+/** Wake-on-LAN details for pairing links (adapter lookup is cheap but the panel refreshes often). */
+let wolCache = { at: 0, v: null };
+function wolInfo() {
+  if (Date.now() - wolCache.at > 30_000) wolCache = { at: Date.now(), v: wol.primaryAdapter() };
+  return wolCache.v;
+}
+
+/** Pairing link for a slot. Guests are view only and temporary, so their link does not carry this PC's MAC address. */
+function linkFor(slot) {
+  const key = Buffer.from(slot.key, 'base64url');
+  const w = slot.viewOnly ? null : wolInfo();
+  return crypto.toLink(key, store.get('hostName'), store.get('signalBase'), w?.mac, w?.broadcast);
+}
+
 async function buildState() {
   store.pruneSlots();
   const snap = core.snapshot();
@@ -117,9 +134,9 @@ async function buildState() {
   let pairing = null;
   if (open) {
     const key = Buffer.from(open.key, 'base64url');
-    const link = crypto.toLink(key, store.get('hostName'), store.get('signalBase'));
+    const link = linkFor(open);
     pairing = {
-      id: open.id, link, code: crypto.toManualCode(key),
+      id: open.id, guest: open.viewOnly === true, wol: !open.viewOnly && !!wolInfo(), link, code: crypto.toManualCode(key),
       qr: await QRCode.toDataURL(link, { margin: 1, width: 280, errorCorrectionLevel: 'M', color: { dark: '#0B0C0A', light: '#F3F2EE' } }),
       expiresAt: open.createdAt + UNCLAIMED_TTL_MS,
     };
@@ -128,6 +145,7 @@ async function buildState() {
     ...snap, pairing,
     devices: store.data.slots.filter((s) => s.claimedAt).map((s) => ({
       id: s.id, name: s.name || 'Phone', lastSeen: s.lastSeen, connected: snap.device?.slotId === s.id, needsRepair: !!s.needsRepair,
+      ...permissions.describe(s, Date.now()),
     })),
     settings: {
       hostName: store.get('hostName'), allowControl: store.get('allowControl'), quality: store.get('quality'),
@@ -177,8 +195,24 @@ function updateTray() {
 function registerIpc() {
   ipcMain.handle('state', () => buildState());
   ipcMain.handle('act', async (e, name, arg) => {
+    let result;
     switch (name) {
       case 'newPairing': store.createSlot(); core.refreshSlots(); break;
+      case 'guest': // view only, access ends 1 hour after the phone pairs, sessions capped at 60 min
+        store.createSlot({ viewOnly: true, expireAfterClaimMs: 60 * 60_000, maxSessionMin: 60 });
+        core.refreshSlots(); break;
+      case 'phone': { // {id, viewOnly?: boolean, expiresIn?: 'never'|'1h'|'1d'|'7d'}; anything else is ignored
+        if (!arg || typeof arg.id !== 'string') break;
+        const slot = store.slot(arg.id);
+        if (!slot || !slot.claimedAt) break;
+        const wasViewOnly = slot.viewOnly === true;
+        if (permissions.applyUpdate(slot, arg, Date.now())) {
+          store.save();
+          core.refreshSlots();
+          if ((slot.viewOnly === true) !== wasViewOnly) core.controlChanged();
+        }
+        break;
+      }
       case 'cancelPairing': store.data.slots = store.data.slots.filter((s) => s.claimedAt); store.save(); core.refreshSlots(); break;
       case 'revoke':
         if (core.sess?.slotId === arg) core.endSession('device removed', true);
@@ -205,12 +239,18 @@ function registerIpc() {
         break;
       }
       case 'copy': clipboard.writeText(String(arg)); break;
+      case 'diagnose':
+        result = await diagnose.runChecks({
+          dgram: require('dgram'), createSignaling: (b) => new Signaling(b), signalBase: store.get('signalBase'),
+        });
+        break;
       case 'checkUpdate': await updates.check(); break;
       case 'openUpdate': if (updates.state.download) openLink(updates.state.download); break;
       case 'quit': quitting = true; app.quit(); break;
       default: break;
     }
     pushState();
+    return result;
   });
 }
 
@@ -274,7 +314,7 @@ app.whenReady().then(async () => {
   if (process.env.GLIDR_PAIR_OUT) {
     // dev aid for end-to-end tests: open a pairing and write its link to a file
     const slot = store.createSlot(); core.refreshSlots();
-    fs.writeFileSync(process.env.GLIDR_PAIR_OUT, crypto.toLink(Buffer.from(slot.key, 'base64url'), store.get('hostName'), store.get('signalBase')));
+    fs.writeFileSync(process.env.GLIDR_PAIR_OUT, linkFor(slot));
   }
   if (process.env.GLIDR_SHOT) {
     // dev aid: screenshot the control panel (optionally with a pairing open) and quit

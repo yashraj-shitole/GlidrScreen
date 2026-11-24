@@ -54,12 +54,24 @@ function render(s) {
   $('pairIdle').classList.toggle('hidden', !!p);
   $('pairOpen').classList.toggle('hidden', !p);
   if (p) {
+    $('guestNote').classList.toggle('hidden', !p.guest);
+    $('wolNote').classList.toggle('hidden', !p.wol);
     if ($('qr').dataset.id !== p.id) { $('qr').src = p.qr; $('qr').dataset.id = p.id; }
     $('code').textContent = p.code;
     renderExpires(p);
   }
 
   $('noDevices').classList.toggle('hidden', s.devices.length > 0);
+  // An open dropdown would be closed by rebuilding the list (state arrives every second while streaming).
+  const picking = document.activeElement && document.activeElement.tagName === 'SELECT' && $('devices').contains(document.activeElement);
+  if (!picking) renderDevices(s);
+  renderMonitors(s);
+  renderSettings(s);
+}
+
+const ACCESS = [['never', 'Always'], ['1h', '1 hour'], ['1d', '1 day'], ['7d', '7 days']];
+
+function renderDevices(s) {
   $('devices').innerHTML = '';
   for (const d of s.devices) {
     const li = document.createElement('li');
@@ -73,7 +85,8 @@ function render(s) {
     nameRow.append(nameEl);
     left.append(nameRow);
     const sm = document.createElement('small');
-    sm.textContent = d.needsRepair ? 'Pair again: its key cannot be read on this PC' : d.connected ? 'Connected now' : `Last seen ${ago(d.lastSeen)}`;
+    const seen = d.connected ? 'Connected now' : `Last seen ${ago(d.lastSeen)}`;
+    sm.textContent = d.needsRepair ? 'Pair again: its key cannot be read on this PC' : d.text ? `${seen}. ${d.text}` : seen;
     left.append(sm);
     const btn = document.createElement('button');
     btn.className = 'ghost danger'; btn.textContent = 'Remove';
@@ -84,9 +97,31 @@ function render(s) {
       fix.onclick = () => window.glidr.act('repair', d.id);
       li.append(left, fix, btn);
     } else li.append(left, btn);
+    if (!d.needsRepair) li.append(permissionRow(d));
     $('devices').append(li);
   }
+}
 
+/** "View only" switch and "Access" length for one phone. */
+function permissionRow(d) {
+  const row = document.createElement('div');
+  row.className = 'perm';
+  const vo = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.className = 'switch'; cb.checked = !!d.viewOnly;
+  cb.onchange = () => window.glidr.act('phone', { id: d.id, viewOnly: cb.checked });
+  vo.append(cb, document.createTextNode('View only'));
+  const al = document.createElement('label');
+  const sel = document.createElement('select');
+  for (const [v, t] of ACCESS) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.append(o); }
+  sel.value = d.access;
+  sel.onchange = () => { window.glidr.act('phone', { id: d.id, expiresIn: sel.value }); sel.blur(); };
+  al.append(document.createTextNode('Access'), sel);
+  row.append(vo, al);
+  return row;
+}
+
+function renderMonitors(s) {
   $('monitors').innerHTML = '';
   for (const m of s.monitors) {
     const el = document.createElement('div');
@@ -97,7 +132,9 @@ function render(s) {
     el.append(sm);
     $('monitors').append(el);
   }
+}
 
+function renderSettings(s) {
   if (!editing) {
     $('sharing').checked = s.sharing;
     for (const id of TOGGLES) $(id).checked = s.settings[id];
@@ -118,6 +155,28 @@ function render(s) {
 }
 
 $('newPairing').onclick = () => window.glidr.act('newPairing');
+$('newGuest').onclick = () => window.glidr.act('guest');
+$('diagnose').onclick = async () => {
+  const btn = $('diagnose');
+  btn.disabled = true; btn.textContent = 'Testing...';
+  $('diagResults').innerHTML = '';
+  let results = [];
+  try { results = await window.glidr.act('diagnose'); } catch { results = [{ name: 'Test', ok: false, detail: 'The test could not run', ms: 0 }]; }
+  for (const r of results || []) {
+    const li = document.createElement('li');
+    li.className = r.ok ? 'ok' : 'bad';
+    const mark = document.createElement('b');
+    mark.textContent = r.ok ? '\u2713' : '\u2717';
+    const text = document.createElement('span');
+    text.textContent = r.name;
+    const sm = document.createElement('small');
+    sm.textContent = `${r.detail} (${r.ms} ms)`;
+    text.append(sm);
+    li.append(mark, text);
+    $('diagResults').append(li);
+  }
+  btn.disabled = false; btn.textContent = 'Test connection';
+};
 $('cancelPairing').onclick = () => window.glidr.act('cancelPairing');
 /** Briefly shows [text] in [el], then puts the original text back. */
 function flash(el, text) {

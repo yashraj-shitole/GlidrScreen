@@ -31,6 +31,7 @@
     <div id="pairIdle">
       <p class="dim">Generate a pairing code, then scan it with Glidr Screen on your phone. After that the phone can connect from anywhere with internet.</p>
       <button id="newPairing" class="primary">Pair a new phone</button>
+      <button id="newGuest" class="ghost wide">Pair a guest (view only, 1 hour)</button>
     </div>
     <div id="pairOpen" class="hidden">
       <div class="qrwrap"><img id="qr" alt="Pairing QR code" width="200" height="200"></div>
@@ -42,6 +43,8 @@
         <button id="cancelPairing" class="ghost">Cancel</button>
       </div>
       <p class="dim center small" id="expires"></p>
+      <p class="dim center small hidden" id="guestNote">Guest pairing: the phone can only watch, and its access ends 1 hour after it pairs.</p>
+      <p class="dim center small hidden" id="wolNote">Wake-on-LAN works on the same Wi-Fi if it is enabled in your BIOS and network adapter settings</p>
     </div>
   </section>
 
@@ -74,6 +77,8 @@
       <label class="col"><span>PC name</span><input type="text" id="hostName" maxlength="40"></label>
       <label class="col"><span>Signaling server<small>Only used to introduce the two devices, end-to-end encrypted. Any ntfy server works. Set it before pairing: phones already paired keep the old one.</small></span><input type="text" id="signalBase" spellcheck="false"></label>
       <p class="dim small" id="signalStatus"></p>
+      <button id="diagnose" class="ghost wide">Test connection</button>
+      <ul id="diagResults" class="diag"></ul>
     </details>
   </section>
 
