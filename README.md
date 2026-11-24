@@ -29,9 +29,14 @@ with a debug key and the PC app is not code-signed, so Windows SmartScreen warns
 
 **See the PC**
 * Live picture of the PC at 24 fps, hardware decoded. Pinch to zoom, drag to pan while zoomed, one tap to reset.
-* Rotate to landscape for a full-screen picture (system bars hide). The screen stays on while you are connected.
+* Rotate to landscape for a full-width picture with floating controls that fold away to a handle. The screen stays on
+  while you are connected.
 * Status line with fps, resolution, bitrate, ping and the connection path (switch off with *Show stats*).
-* Stream quality: Auto, 540p, 720p or 1440p. Always 24 fps; the setting caps resolution and bitrate.
+* Stream quality: Auto, 540p, 720p or 1440p, frame rate 15 / 24 / 30 / 60, a *Data saver* switch, and a delivery mode
+  (*Auto*, *Fast* for lowest delay, *Sharp* for text clarity). Auto mode lowers and raises resolution and bitrate by
+  itself when the link changes.
+* *Follow pointer*: while zoomed in, the view follows the PC's mouse pointer.
+* Optional PC audio (switched on in the PC app) with a mute chip. A banner tells you when the PC is locked.
 
 **Trackpad**
 * Laptop-style gestures: one finger moves the pointer, tap clicks, two-finger tap right-clicks, three-finger tap
@@ -40,6 +45,12 @@ with a debug key and the PC app is not code-signed, so Windows SmartScreen warns
 * Left and right mouse buttons under the pad. Hold one to keep it pressed, so they drag too.
 * *Direct touch*: tap the picture to click that exact spot on the PC, like a touchscreen.
 * Pointer speed (0.5x to 3.5x), pointer acceleration (Off / Low / Med / High), scroll speed and natural scrolling.
+* Optional extras, all off until you switch them on: a sideways scroll strip along the bottom edge, a bottom-right
+  corner right-click, *Precision mode* (a second resting finger slows the pointer), three-finger swipes (Win+Tab,
+  Win+D, previous and next virtual desktop), left-handed and one-handed layouts, and on-screen Middle / Up / Down
+  buttons for people who cannot use multi-finger gestures.
+* Input settings are remembered per PC, with Reading, Precision and Presentation presets.
+* An attached Bluetooth or USB keyboard and mouse control the PC directly.
 
 **Multiple monitors**
 * Numbered chips (**1 2 ...**) on the picture jump straight to a monitor; *Next display* cycles through them.
@@ -52,8 +63,15 @@ with a debug key and the PC app is not code-signed, so Windows SmartScreen warns
   Task Manager, snip, lock, close window, refresh and full screen.
 * Media keys: volume, mute, previous, play/pause, next.
 * Type a phrase in any language (sent as Unicode text, so it is not limited to the PC's keyboard layout).
+* Your own shortcuts: build combos (for example OBS or Premiere keys), pin up to four under the mouse buttons.
+
+**Clipboard**
+* Send the phone's clipboard text to the PC, paste the PC's clipboard on the phone, or keep them in sync. Text goes
+  straight to the PC over the encrypted link, never through a server (256 KB limit, opt-in).
 
 **Connection**
+* *Wake* button for PCs that advertise Wake-on-LAN (same Wi-Fi, and it must be enabled in the PC's BIOS and adapter).
+* When a connection fails, the screen says how far it got (reached the signaling server, request sent, offer received...).
 * Pair once by scanning a QR code (or typing the code / pasting the link). Paired PCs are listed; forget one any time.
 * Connects from any network, not only the same Wi-Fi, and reconnects on its own when the link drops.
 * Midnight (dark) and Paper (light) themes, haptics on clicks.
@@ -66,13 +84,22 @@ with a debug key and the PC app is not code-signed, so Windows SmartScreen warns
   (the phone shows a "View only" tag).
 * Disconnect the phone from the panel or the tray menu.
 * Default quality (Auto / 540p / 720p / 1440p) and video codec (Auto prefers hardware H.264, or H.264 / VP8).
+* Keeps the PC awake while sharing, and reconnects after sleep or unlock. Tray items to pause for an hour or until
+  tomorrow morning.
+* Per phone: a *View only* switch, an access limit (always, 1 hour, 1 day, 7 days), and *Pair a guest* for a one-hour
+  view-only link.
+* Optional: share the PC's audio, end the session when the PC locks, two-way clipboard (the phone asks for it).
+* *Test connection* checks the signaling server, STUN and the PC's clock.
+* `glidr-screen://pause`, `resume` and `disconnect` links for scripts and Stream Deck buttons (nothing else is accepted).
 * Advanced: PC name and your own signaling (ntfy) server.
-* Checks GitHub for updates and shows a download link.
+* Checks GitHub for updates and shows a download link. The start-with-Windows entry repairs itself if the copy it
+  pointed to was moved or broken.
 
 ### Privacy and security
 * Video, mouse and keyboard go directly between phone and PC over WebRTC (DTLS-SRTP). No media server, no relay of ours.
-* The pairing key never leaves the two devices. The rendezvous server only passes three sealed setup messages
-  (AES-256-GCM, keys from HKDF-SHA256) and never sees the video or your input.
+* The pairing key never leaves the two devices, and is encrypted at rest on the PC with Windows' own protection. The
+  rendezvous server only passes three sealed setup messages (AES-256-GCM, keys from HKDF-SHA256) and never sees the
+  video or your input.
 * No account, no sign-up.
 
 ### Embeddable
@@ -93,18 +120,20 @@ then create a GitHub release tagged `vX.Y.Z` with the phone `.apk` and the PC pa
 ## Test
 
 ```
-host:    npm test                 crypto vectors
+host:    npm test                 crypto vectors, store, pause timer, permissions, Wake-on-LAN, adaptation, clipboard...
          node test/input.test.js  moves the real cursor a few px and back
          node test/signaling.test.js   live round trip through ntfy.sh
          npm run selftest         full end to end: plays the phone, 24 fps video, monitor switch, mouse, quality
-android: gradlew.bat :screenview:testDebugUnitTest   crypto cross-compat with the host, pointer math, parsing
+android: gradlew.bat :screenview:testDebugUnitTest   crypto cross-compat with the host, pointer math, parsing, shortcuts, protocol messages
 ```
 
 ## Honest limits
 
 * Tested: PC host end to end (self-test, packaged exe), Android app on the emulator connected to the real host
   (pairing by deep link, video, trackpad, monitor switch). **Not yet tested on a real phone** or across two different
-  networks; the emulator sat behind the same router as the PC.
+  networks; the emulator sat behind the same router as the PC. Newer features (audio, clipboard, pointer follow,
+  hardware keyboard and mouse, Wake-on-LAN, per-phone access limits) are unit-tested and the host self-test passes,
+  but they have not been tried live between a real phone and PC.
 * Peer-to-peer fails when both sides are behind symmetric NAT (some mobile carriers). IPv6 normally avoids it. A TURN
   server can be added in `settings.json` (`turn`), at the price of relayed media.
 * The rendezvous defaults to the public ntfy.sh. It only carries sealed messages; point both apps at your own ntfy server
