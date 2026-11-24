@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -30,6 +32,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,7 +46,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
@@ -153,7 +160,11 @@ fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: ()
         field = if (new.text.length > 48) TextFieldValue("") else new
     }
 
-    Sheet(onDismiss) {
+    // -1 nothing open, 0 more keys, 1 shortcuts, 2 media, 3 phrase: one section at a time keeps the sheet short, and the
+    // lighter scrim keeps the PC picture behind it readable while typing.
+    var tab by remember { mutableIntStateOf(-1) }
+
+    Sheet(onDismiss, scrim = androidx.compose.ui.graphics.Color(0x22000000)) {
         Column(Modifier.imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             BasicTextField(
                 value = field,
@@ -175,28 +186,38 @@ fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: ()
                 MODIFIERS.forEach { m ->
                     KeyChip(m, active = m in latched) { if (m in latched) latched.remove(m) else latched.add(m); haptic(false) }
                 }
-                KeyChip("Esc") { press("Esc") }; KeyChip("Tab") { press("Tab") }; KeyChip("Enter") { press("Enter") }
-                KeyChip("Bksp") { press("Backspace") }; KeyChip("Del") { press("Del") }; KeyChip("Space") { press("Space") }
+                KeyChip("Esc") { press("Esc") }; KeyChip("Tab") { press("Tab") }
+                KeyChip("Bksp") { press("Backspace") }; KeyChip("Del") { press("Del") }
                 KeyChip("Left") { press("Left") }; KeyChip("Up") { press("Up") }; KeyChip("Down") { press("Down") }; KeyChip("Right") { press("Right") }
-                KeyChip("Home") { press("Home") }; KeyChip("End") { press("End") }; KeyChip("PgUp") { press("PgUp") }; KeyChip("PgDn") { press("PgDn") }
-                for (i in 1..12) KeyChip("F$i") { press("F$i") }
             }
-            Label("Shortcuts", color = c.dim, style = Gs.type.small)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SHORTCUTS.forEach { s -> KeyChip(s.label) { client.combo(s.keys); haptic(false) } }
+                listOf("More keys", "Shortcuts", "Media", "Phrase").forEachIndexed { i, title ->
+                    KeyChip(title, active = tab == i) { tab = if (tab == i) -1 else i }
+                }
             }
-            Label("Media", color = c.dim, style = Gs.type.small)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                MEDIA.forEach { (label, key) -> KeyChip(label) { client.key(key); haptic(false) } }
-            }
-            Label("Type a phrase in any language", color = c.dim, style = Gs.type.small)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                BasicTextField(
-                    value = phrase, onValueChange = { phrase = it },
-                    textStyle = Gs.type.body.copy(color = c.text), cursorBrush = SolidColor(c.accent),
-                    modifier = Modifier.weight(1f).heightIn52().clip(RoundedCornerShape(14.dp)).background(c.s2).padding(14.dp),
-                )
-                Pill("Send", { client.typeText(phrase); phrase = "" }, enabled = phrase.isNotEmpty(), primary = true)
+            when (tab) {
+                0 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    KeyChip("Enter") { press("Enter") }; KeyChip("Space") { press("Space") }
+                    KeyChip("Home") { press("Home") }; KeyChip("End") { press("End") }; KeyChip("PgUp") { press("PgUp") }; KeyChip("PgDn") { press("PgDn") }
+                    for (i in 1..12) KeyChip("F$i") { press("F$i") }
+                }
+                1 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SHORTCUTS.forEach { s -> KeyChip(s.label) { client.combo(s.keys); haptic(false) } }
+                }
+                2 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MEDIA.forEach { (label, key) -> KeyChip(label) { client.key(key); haptic(false) } }
+                }
+                3 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Label("Type a phrase in any language, then send it in one go. The field above is for English keys.", color = c.dim, style = Gs.type.small)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        BasicTextField(
+                            value = phrase, onValueChange = { phrase = it },
+                            textStyle = Gs.type.body.copy(color = c.text), cursorBrush = SolidColor(c.accent),
+                            modifier = Modifier.weight(1f).heightIn52().clip(RoundedCornerShape(14.dp)).background(c.s2).padding(14.dp),
+                        )
+                        Pill("Send", { client.typeText(phrase); phrase = "" }, enabled = phrase.isNotEmpty(), primary = true)
+                    }
+                }
             }
             Pill("Done", onDismiss, Modifier.fillMaxWidth())
         }
@@ -226,28 +247,65 @@ fun SettingsSheet(
 ) {
     val c = Gs.colors
     val quality by client.quality.collectAsState()
+    // The options scroll; Disconnect / Done stay in view below them.
+    val maxScroll = (LocalConfiguration.current.screenHeightDp * 0.6f).dp
+    val scroll = rememberScrollState()
     Sheet(onDismiss) {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box {
+        Column(Modifier.heightIn(max = maxScroll).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Label("Stream quality", color = c.dim, style = Gs.type.small)
             Segmented(Quality.entries.map { it.label }, quality.ordinal, { client.setQuality(Quality.entries[it]) })
             Label("Always 24 fps. This caps the resolution and bitrate sent from the PC.", color = c.dim, style = Gs.type.small)
 
-            Label("Pointer speed  %.1fx".format(prefs.sensitivity), color = c.dim, style = Gs.type.small)
-            Slider(prefs.sensitivity, 0.5f..3.5f, { v -> onPrefs { it.copy(sensitivity = v) } }, "Pointer speed")
+            // label and slider sit together, so the label reads as belonging to the bar under it
+            Column {
+                Label("Pointer speed  %.1fx".format(prefs.sensitivity), color = c.dim, style = Gs.type.small)
+                Slider(prefs.sensitivity, 0.5f..3.5f, { v -> onPrefs { it.copy(sensitivity = v) } }, "Pointer speed")
+            }
             Label("Pointer acceleration", color = c.dim, style = Gs.type.small)
             Segmented(listOf("Off", "Low", "Med", "High"), prefs.accel, { v -> onPrefs { it.copy(accel = v) } })
-            Label("Scroll speed  %.1fx".format(prefs.scrollSpeed), color = c.dim, style = Gs.type.small)
-            Slider(prefs.scrollSpeed, 0.4f..3f, { v -> onPrefs { it.copy(scrollSpeed = v) } }, "Scroll speed")
+            Column {
+                Label("Scroll speed  %.1fx".format(prefs.scrollSpeed), color = c.dim, style = Gs.type.small)
+                Slider(prefs.scrollSpeed, 0.4f..3f, { v -> onPrefs { it.copy(scrollSpeed = v) } }, "Scroll speed")
+            }
 
             SettingRow("Natural scrolling", "Content follows your fingers", prefs.naturalScroll) { v -> onPrefs { it.copy(naturalScroll = v) } }
             SettingRow("Direct touch", "Tap the picture to click that spot", prefs.directTouch) { v -> onPrefs { it.copy(directTouch = v) } }
             SettingRow("Haptics", "Vibrate on clicks", prefs.haptics) { v -> onPrefs { it.copy(haptics = v) } }
             SettingRow("Show stats", "fps, resolution, bitrate and ping", prefs.showStats) { v -> onPrefs { it.copy(showStats = v) } }
             SettingRow("Light theme", "Paper instead of Midnight", prefs.light) { v -> onPrefs { it.copy(light = v) } }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Pill("Disconnect", onDisconnect, Modifier.weight(1f))
-                Pill("Done", onDismiss, Modifier.weight(1f), primary = true)
+
+            Label("Accent colour", color = c.dim, style = Gs.type.small)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AccentSwatches.forEachIndexed { i, color ->
+                    val on = prefs.accent == i
+                    Box(
+                        Modifier.size(44.dp).clip(CircleShape).background(color).border(if (on) 3.dp else 1.dp, if (on) c.text else c.line, CircleShape)
+                            .clickable(role = Role.RadioButton) { onPrefs { it.copy(accent = i) } }
+                            .semantics { contentDescription = "Accent colour ${i + 1}" },
+                    )
+                }
             }
+
+            Label("Trackpad gestures", color = c.dim, style = Gs.type.small)
+            Label(
+                "Tap: click. Two-finger tap: right-click. Three-finger tap: middle-click. Two fingers: scroll. " +
+                    "Tap, then drag: drag. The strip on the right also scrolls. With Direct touch on, long-press right-clicks.",
+                color = c.dim, style = Gs.type.small,
+            )
+        }
+        // fades the last row out while there is more below, so a clipped row reads as "keep scrolling"
+        if (scroll.canScrollForward) {
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(40.dp).background(
+                    androidx.compose.ui.graphics.Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, c.s1)),
+                ),
+            )
+        }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pill("Disconnect", onDisconnect, Modifier.weight(1f))
+            Pill("Done", onDismiss, Modifier.weight(1f), primary = true)
         }
     }
 }

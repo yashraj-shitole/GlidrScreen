@@ -18,12 +18,17 @@ data class PairedPc(
     val key: String,
     val signalBase: String = DEFAULT_SIGNAL_BASE,
     val lastUsed: Long = 0L,
+    /** When a session with this PC last went live (0 = never). [lastUsed] also moves on attempts that failed. */
+    val lastLive: Long = 0L,
 ) {
     val keyBytes: ByteArray get() = Base64.getUrlDecoder().decode(key)
 }
 
 /** What a pairing QR / link / typed code carries. */
-data class PairingInfo(val key: ByteArray, val hostName: String, val signalBase: String)
+data class PairingInfo(val key: ByteArray, val hostName: String, val signalBase: String) {
+    /** The key as [PairedPc.key] stores it, to tell whether this PC is already paired. */
+    val keyText: String get() = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
+}
 
 object PairingParser {
     /** Accepts `glidr://screen?v=1&k=...&n=...&s=...` links or the 26-character manual code. */
@@ -62,7 +67,7 @@ class PairingStore(context: Context) {
         val arr = JSONArray(prefs.getString("pcs", "[]"))
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            PairedPc(o.getString("id"), o.getString("name"), o.getString("key"), o.optString("base", DEFAULT_SIGNAL_BASE), o.optLong("used"))
+            PairedPc(o.getString("id"), o.getString("name"), o.getString("key"), o.optString("base", DEFAULT_SIGNAL_BASE), o.optLong("used"), o.optLong("live"))
         }.sortedByDescending { it.lastUsed }
     } catch (_: Exception) {
         emptyList()
@@ -71,20 +76,21 @@ class PairingStore(context: Context) {
     private fun save(list: List<PairedPc>) {
         val arr = JSONArray()
         list.forEach {
-            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("key", it.key).put("base", it.signalBase).put("used", it.lastUsed))
+            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("key", it.key).put("base", it.signalBase).put("used", it.lastUsed).put("live", it.lastLive))
         }
         prefs.edit().putString("pcs", arr.toString()).apply()
     }
 
     /** Adds (or replaces, when the same key is paired again) and returns the stored PC. */
     fun add(info: PairingInfo): PairedPc {
-        val key = Base64.getUrlEncoder().withoutPadding().encodeToString(info.key)
+        val key = info.keyText
         val existing = load()
         val pc = PairedPc(key.take(8), info.hostName, key, info.signalBase, System.currentTimeMillis())
         save(existing.filterNot { it.key == key } + pc)
         return pc
     }
 
+    fun markLive(pc: PairedPc) = save(load().map { if (it.id == pc.id) it.copy(lastLive = System.currentTimeMillis()) else it })
     fun touch(pc: PairedPc) = save(load().map { if (it.id == pc.id) it.copy(lastUsed = System.currentTimeMillis()) else it })
     fun rename(pc: PairedPc, name: String) = save(load().map { if (it.id == pc.id) it.copy(name = name) else it })
     fun remove(pc: PairedPc) = save(load().filterNot { it.id == pc.id })

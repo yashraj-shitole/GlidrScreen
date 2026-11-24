@@ -25,6 +25,7 @@ const displays = require('./displays');
 const crypto = require('./crypto');
 const icon = require('./icon');
 const { UpdateChecker } = require('./updates');
+const { repairAutostart } = require('./autostart');
 
 let store, signaling, input, core, engineWin, uiWin, tray, updates;
 let notifiedVersion = null;
@@ -60,6 +61,8 @@ function createEngineWindow() {
 }
 
 function createUiWindow() {
+  // First run (nothing paired, nothing open): show the QR straight away instead of an extra "Pair a new phone" click.
+  if (store && core && !store.data.slots.length) { store.createSlot(); core.refreshSlots(); }
   if (uiWin && !uiWin.isDestroyed()) { uiWin.show(); uiWin.focus(); return; }
   uiWin = new BrowserWindow({
     width: 440, height: 780, minWidth: 400, minHeight: 600, backgroundColor: '#000000', autoHideMenuBar: true,
@@ -214,6 +217,12 @@ app.whenReady().then(async () => {
   core.start();
   updates.start();
   updateTray();
+  if (app.isPackaged && process.platform === 'win32') {
+    // Login item pointing at a moved or half-extracted copy: point it at this one (see autostart.js).
+    repairAutostart({ execPath: process.execPath, register: () => app.setLoginItemSettings({ ...LOGIN_ITEM, openAtLogin: true }) })
+      .then((fixed) => { if (fixed) console.log('[host] autostart entry repointed to this copy'); })
+      .catch(() => {});
+  }
   if (!process.argv.includes('--hidden')) createUiWindow();
   if (process.env.GLIDR_PAIR_OUT) {
     // dev aid for end-to-end tests: open a pairing and write its link to a file

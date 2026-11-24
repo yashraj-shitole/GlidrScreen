@@ -17,6 +17,20 @@ function ago(ts) {
   return `${Math.round(s / 86400)} d ago`;
 }
 
+/** Rounds up, so "Expires in 1 min" lasts until it really expires. Fetches fresh state once it has: main prunes it then. */
+let expiryFetchAt = 0;
+function renderExpires(p) {
+  const ms = p.expiresAt - Date.now();
+  if (ms <= 0) {
+    // at most one refresh per 5 s, so a state that still lists the pairing cannot loop
+    if (Date.now() - expiryFetchAt > 5000) { expiryFetchAt = Date.now(); window.glidr.state().then(render); }
+    $('expires').textContent = 'This code has expired. Cancel and generate a new one.';
+    return;
+  }
+  const min = Math.ceil(ms / 60000);
+  $('expires').textContent = `Expires in ${min} min. Anyone with this code can pair, so show it only to yourself.`;
+}
+
 function render(s) {
   state = s;
   const [cls, label] = STATUS[s.status];
@@ -41,8 +55,7 @@ function render(s) {
   if (p) {
     if ($('qr').dataset.id !== p.id) { $('qr').src = p.qr; $('qr').dataset.id = p.id; }
     $('code').textContent = p.code;
-    const left = Math.max(0, Math.round((p.expiresAt - Date.now()) / 60000));
-    $('expires').textContent = `Expires in ${left} min. Anyone with this code can pair, so show it only to yourself.`;
+    renderExpires(p);
   }
 
   $('noDevices').classList.toggle('hidden', s.devices.length > 0);
@@ -50,7 +63,14 @@ function render(s) {
   for (const d of s.devices) {
     const li = document.createElement('li');
     const left = document.createElement('div');
-    left.textContent = d.name;
+    const nameRow = document.createElement('div');
+    nameRow.className = 'name';
+    if (d.connected) { const dot = document.createElement('i'); dot.className = 'dot'; nameRow.append(dot); }
+    const nameEl = document.createElement('span');
+    nameEl.textContent = d.name;
+    nameEl.title = d.name; // the full name when it is long enough to be cut off
+    nameRow.append(nameEl);
+    left.append(nameRow);
     const sm = document.createElement('small');
     sm.textContent = d.connected ? 'Connected now' : `Last seen ${ago(d.lastSeen)}`;
     left.append(sm);
@@ -94,8 +114,15 @@ function render(s) {
 
 $('newPairing').onclick = () => window.glidr.act('newPairing');
 $('cancelPairing').onclick = () => window.glidr.act('cancelPairing');
-$('copyLink').onclick = () => state.pairing && window.glidr.act('copy', state.pairing.link);
-$('code').onclick = () => state.pairing && window.glidr.act('copy', state.pairing.code);
+/** Briefly shows [text] in [el], then puts the original text back. */
+function flash(el, text) {
+  if (el.dataset.orig === undefined) el.dataset.orig = el.textContent;
+  el.textContent = text;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.textContent = el.dataset.orig; delete el.dataset.orig; }, 1500);
+}
+$('copyLink').onclick = () => { if (state.pairing) { window.glidr.act('copy', state.pairing.link); flash($('copyLink'), 'Copied'); } };
+$('code').onclick = () => { if (state.pairing) { window.glidr.act('copy', state.pairing.code); flash($('copyHint'), 'Code copied'); } };
 $('disconnect').onclick = () => window.glidr.act('disconnect');
 $('quit').onclick = (e) => { e.preventDefault(); window.glidr.act('quit'); };
 $('checkUpdate').onclick = (e) => { e.preventDefault(); window.glidr.act('checkUpdate'); };
@@ -106,7 +133,17 @@ for (const id of ['quality', 'codec']) $(id).onchange = (e) => window.glidr.act(
 for (const id of ['hostName', 'signalBase']) {
   $(id).onfocus = () => { editing = true; };
   $(id).onblur = () => { editing = false; };
-  $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.value });
+  $(id).onchange = (e) => {
+    // A phone keeps the server it was paired with. Switching here leaves every paired phone waiting for a PC that
+    // is listening somewhere else, so say so before it happens.
+    if (id === 'signalBase' && state && state.devices.length && e.target.value.trim().replace(/\/+$/, '') !== state.settings.signalBase) {
+      if (!confirm('Phones that are already paired keep using the old signaling server and will not connect until they are paired again. Change it anyway?')) {
+        e.target.value = state.settings.signalBase;
+        return;
+      }
+    }
+    window.glidr.act('setting', { [id]: e.target.value });
+  };
 }
 
 window.glidr.onState(render);
@@ -114,3 +151,5 @@ window.glidr.state().then(render);
 // Refresh "x min ago" and the pairing countdown. Fetch fresh state: the main process prunes an expired pairing
 // on each fetch, and re-rendering the old state would keep showing its QR code.
 setInterval(() => window.glidr.state().then(render), 30_000);
+// The pairing countdown ticks every few seconds without asking the main process.
+setInterval(() => { if (state && state.pairing) renderExpires(state.pairing); }, 5_000);

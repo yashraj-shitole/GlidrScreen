@@ -57,6 +57,7 @@ fun HomeScreen(
     onClearError: () -> Unit,
     onConnect: (PairedPc) -> Unit,
     onForget: (PairedPc) -> Unit,
+    onRename: (PairedPc, String) -> Unit,
     onClose: (() -> Unit)?,
     update: UpdateUi? = null,
 ) {
@@ -65,10 +66,12 @@ fun HomeScreen(
     var showCode by remember { mutableStateOf(false) }
     var scanError by remember { mutableStateOf<String?>(null) }
     var confirmForget by remember { mutableStateOf<PairedPc?>(null) }
+    var manage by remember { mutableStateOf<PairedPc?>(null) }
 
     Box(Modifier.fillMaxSize().background(c.bg)) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         LazyColumn(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 18.dp),
+            Modifier.weight(1f).padding(horizontal = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -102,7 +105,7 @@ fun HomeScreen(
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(22.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Label("Connect your first PC", style = Gs.type.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold))
                         Step("1", "Run Glidr Screen on your Windows PC.")
-                        Step("2", "Press \"Pair a new phone\" there. A QR code appears.")
+                        Step("2", "Find the QR code in its window. If it is not shown, press \"Pair a new phone\".")
                         Step("3", "Scan it here. Your PC and phone then connect directly, from any network.")
                     }
                 }
@@ -115,9 +118,9 @@ fun HomeScreen(
                         Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(c.s2), contentAlignment = Alignment.Center) { Icon(Ico.Display, c.text) }
                         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                             Label(pc.name, maxLines = 1, style = Gs.type.body)
-                            Label(if (pc.lastUsed > 0) "Paired" else "New", color = c.dim, style = Gs.type.small)
+                            Label(TimeText.lastConnected(System.currentTimeMillis(), pc.lastLive), color = c.dim, style = Gs.type.small)
                         }
-                        RoundIconButton(Ico.Trash, "Forget ${pc.name}", { confirmForget = pc }, size = 44.dp)
+                        RoundIconButton(Ico.Edit, "Rename or forget ${pc.name}", { manage = pc }, size = 44.dp)
                         Spacer(Modifier.size(8.dp))
                         Pill("Connect", { onConnect(pc) }, primary = true)
                     }
@@ -140,41 +143,73 @@ fun HomeScreen(
                     color = c.dim, style = Gs.type.small, modifier = Modifier.padding(vertical = 8.dp),
                 )
             }
-            if (update != null) item {
-                val status = when (val s = update.state) {
-                    UpdateState.Checking -> "Checking..."
-                    UpdateState.UpToDate -> "Up to date"
-                    UpdateState.NoReleases -> "No releases published yet"
-                    UpdateState.ViaStore -> "Updates come from Google Play"
-                    is UpdateState.Available -> "Version ${s.release.version} available"
-                    is UpdateState.Failed -> "Could not check for updates"
-                    UpdateState.Idle -> ""
+        }
+        // version and update check stay at the bottom of the screen instead of floating under the list
+        if (update != null) {
+            val status = when (val s = update.state) {
+                UpdateState.Checking -> "Checking..."
+                UpdateState.UpToDate -> "Up to date"
+                UpdateState.NoReleases -> "No releases published yet"
+                UpdateState.ViaStore -> "Updates come from Google Play"
+                is UpdateState.Available -> "Version ${s.release.version} available"
+                is UpdateState.Failed -> "Could not check for updates"
+                UpdateState.Idle -> ""
+            }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Label("Version ${update.currentVersion}", color = c.dim, style = Gs.type.small)
+                    if (status.isNotEmpty()) Label(status, color = c.dim, style = Gs.type.small)
                 }
-                Row(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Label("Version ${update.currentVersion}", color = c.dim, style = Gs.type.small)
-                        if (status.isNotEmpty()) Label(status, color = c.dim, style = Gs.type.small)
-                    }
-                    if (update.state != UpdateState.ViaStore) {
-                        Pill("Check for updates", update.onCheck, enabled = update.state != UpdateState.Checking)
-                    }
+                if (update.state != UpdateState.ViaStore) {
+                    Pill("Check for updates", update.onCheck, enabled = update.state != UpdateState.Checking)
                 }
             }
+        }
         }
 
         if (showCode) CodeSheet(pairError, onClearError, { showCode = false }) { text ->
             val pc = onPair(text)
             if (pc != null) { showCode = false; onConnect(pc) }
         }
+        manage?.let { pc ->
+            ManageSheet(
+                pc,
+                onSave = { name -> onRename(pc, name); manage = null },
+                onForget = { manage = null; confirmForget = pc },
+                onDismiss = { manage = null },
+            )
+        }
         confirmForget?.let { pc ->
             Sheet({ confirmForget = null }) {
                 Label("Forget ${pc.name}?", style = Gs.type.body)
                 Label("This phone will need to be paired with the PC again.", color = c.dim, style = Gs.type.small)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Pill("Cancel", { confirmForget = null }, Modifier.weight(1f))
-                    Pill("Forget", { onForget(pc); confirmForget = null }, Modifier.weight(1f), primary = true)
+                    // the safe choice is the highlighted one; the action that cannot be undone is red
+                    Pill("Cancel", { confirmForget = null }, Modifier.weight(1f), primary = true)
+                    Pill("Forget", { onForget(pc); confirmForget = null }, Modifier.weight(1f), danger = true)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ManageSheet(pc: PairedPc, onSave: (String) -> Unit, onForget: () -> Unit, onDismiss: () -> Unit) {
+    val c = Gs.colors
+    var name by remember { mutableStateOf(pc.name) }
+    Sheet(onDismiss) {
+        Label("Name this PC", style = Gs.type.body)
+        BasicTextField(
+            value = name,
+            onValueChange = { name = it.take(40) },
+            textStyle = Gs.type.body.copy(color = c.text),
+            cursorBrush = SolidColor(c.accent),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(14.dp)).background(c.s2).padding(14.dp),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Pill("Forget PC", onForget, Modifier.weight(1f))
+            Pill("Save", { onSave(name) }, Modifier.weight(1f), primary = true, enabled = name.isNotBlank())
         }
     }
 }

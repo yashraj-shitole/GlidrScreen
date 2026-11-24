@@ -58,6 +58,9 @@ data class LinkStats(val fps: Int, val w: Int, val h: Int, val mbps: Float, val 
 /** The session ended in a way that must not be retried automatically. */
 private class Fatal(message: String) : Exception(message)
 
+/** The PC never replied to the request (not running, paired pairing removed, wrong signaling server). */
+private class NoAnswer(message: String) : Exception(message)
+
 /**
  * One viewing session with a paired PC: signaling handshake, WebRTC peer connection (video receiver + `ctl` data
  * channel), auto-reconnect, and the remote-control API. The PC is the offerer, see docs/PROTOCOL.md.
@@ -107,6 +110,8 @@ class ScreenClient(
     @Volatile private var gatherState = "new"
     private var job: Job? = null
     @Volatile private var currentSid: String? = null
+    /** True once this client has been live; only then is a new attempt a "reconnect" rather than a first try. */
+    @Volatile private var wasLive = false
     private var pcon: PeerConnection? = null
     @Volatile private var dc: DataChannel? = null
     @Volatile private var wantThumbs = false
@@ -127,6 +132,7 @@ class ScreenClient(
 
     fun retry() {
         job?.cancel()
+        wasLive = false
         start()
     }
 
@@ -144,14 +150,23 @@ class ScreenClient(
         currentSid = null
     }
 
+    /** "Connection lost" is only true after a live session; before that the PC simply has not answered yet. */
+    private fun waitingState(attempt: Int): ConnState = when {
+        wasLive -> ConnState.Reconnecting(attempt)
+        attempt == 0 -> ConnState.Connecting("Waiting for the PC")
+        else -> ConnState.Connecting("Still waiting for the PC (try ${attempt + 1})")
+    }
+
     private suspend fun runLoop() {
         var attempt = 0
+        var noAnswers = 0
         _state.value = ConnState.Connecting("Contacting PC")
         while (scope.isActive) {
             try {
                 connectOnce(attempt)
                 // returned normally: connection dropped after being live
                 attempt = 1
+                noAnswers = 0
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
                 teardown(); attempt++
                 if (attempt > MAX_ATTEMPTS) { _state.value = ConnState.Failed("Timed out"); return }
@@ -161,6 +176,14 @@ class ScreenClient(
                 teardown()
                 _state.value = ConnState.Failed(e.message ?: "Connection ended")
                 return
+            } catch (e: NoAnswer) {
+                // Silence will not fix itself: one retry covers a slow PC, then say what to check.
+                teardown()
+                attempt++
+                if (++noAnswers >= NO_ANSWER_ATTEMPTS) {
+                    _state.value = ConnState.Failed(e.message ?: "The PC did not answer")
+                    return
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "attempt $attempt failed", e)
                 teardown()
@@ -171,7 +194,7 @@ class ScreenClient(
                 }
             }
             teardown()
-            _state.value = ConnState.Reconnecting(attempt)
+            _state.value = waitingState(attempt)
             delay(minOf(1_000L shl (attempt - 1).coerceIn(0, 4), 15_000L))
         }
     }
@@ -213,7 +236,7 @@ class ScreenClient(
                 JSONObject().put("t", "req").put("from", "p").put("sid", sid).put("ts", System.currentTimeMillis())
                     .put("n", deviceName()),
             )
-            _state.value = if (attempt == 0) ConnState.Connecting("Waiting for the PC") else ConnState.Reconnecting(attempt)
+            _state.value = waitingState(attempt)
 
             val offer = withTimeoutOrNull(25_000) {
                 var found: JSONObject? = null
@@ -222,6 +245,10 @@ class ScreenClient(
                     when (m.optString("t")) {
                         "offer" -> found = m
                         "busy" -> throw Fatal("Another phone is using this PC right now")
+                        // the PC gave up before it could send an offer (for example the screen could not be captured)
+                        "bye" -> throw Fatal(
+                            m.optString("reason").let { why -> if (why.isBlank()) "The PC ended the session" else "The PC could not start the session ($why)" },
+                        )
                         "deny" -> throw Fatal(
                             when (val why = m.optString("reason")) {
                                 "", "paused" -> "Sharing is paused on the PC"
@@ -232,7 +259,10 @@ class ScreenClient(
                     }
                 }
                 found
-            } ?: throw Exception("The PC did not answer. Is Glidr Screen running on it, with internet?")
+            } ?: throw NoAnswer(
+                "The PC did not answer. Check that Glidr Screen is running on it and online. If it still fails, " +
+                    "this phone may have been removed on the PC, or the PC's signaling server changed: pair again.",
+            )
             applyHostName(offer.optString("host"))
             localTypes.clear(); iceState = "new"; gatherState = "new"
             remoteSummary = summary(Regex("a=candidate:.* typ ([a-z]+)").findAll(offer.getString("sdp")).groupingBy { it.groupValues[1] }.eachCount())
@@ -267,6 +297,7 @@ class ScreenClient(
                         "try Wi-Fi on either side, or another network.",
                 )
             }
+            wasLive = true
             _state.value = ConnState.Live
             val workers = launch { runWorkers() }
             val network = watchNetwork { ended.complete("network") }
@@ -561,5 +592,6 @@ class ScreenClient(
     companion object {
         val DEFAULT_STUN = listOf("stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun.cloudflare.com:3478")
         private const val MAX_ATTEMPTS = 4
+        private const val NO_ANSWER_ATTEMPTS = 2
     }
 }

@@ -1,10 +1,15 @@
 package com.yashraj.glidr.screen.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,19 +20,23 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +50,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -87,7 +97,7 @@ fun PressBox(
     ) { content() }
 }
 
-enum class Ico { Back, Close, Plus, Qr, Display, Swap, Keyboard, Settings, Touch, Pad, Trash, Check, Reset, Down }
+enum class Ico { Back, Close, Plus, Qr, Display, Swap, Keyboard, Settings, Touch, Pad, Trash, Check, Reset, Down, Edit }
 
 @Composable
 fun Icon(kind: Ico, tint: Color, size: Dp = 22.dp) {
@@ -104,6 +114,7 @@ fun Icon(kind: Ico, tint: Color, size: Dp = 22.dp) {
             Ico.Plus -> { line(12f, 5f, 12f, 19f); line(5f, 12f, 19f, 12f) }
             Ico.Check -> { line(5f, 12.5f, 10f, 17f); line(10f, 17f, 19f, 7f) }
             Ico.Down -> { line(6f, 9f, 12f, 15f); line(12f, 15f, 18f, 9f) }
+            Ico.Edit -> { line(15f, 5f, 19f, 9f); line(15f, 5f, 6f, 14f); line(19f, 9f, 10f, 18f); line(6f, 14f, 5f, 19f); line(5f, 19f, 10f, 18f) }
             Ico.Qr -> {
                 drawRoundRect(tint, p(4f, 4f), sz(6f, 6f), CornerRadius(w * 0.04f), style = st)
                 drawRoundRect(tint, p(14f, 4f), sz(6f, 6f), CornerRadius(w * 0.04f), style = st)
@@ -147,14 +158,52 @@ fun RoundIconButton(kind: Ico, description: String, onClick: () -> Unit, active:
     }
 }
 
-/** Text button, accent when [primary]. 48dp tall. */
+/** Text button, accent when [primary], red when [danger] (an action that cannot be undone). 48dp tall. */
 @Composable
-fun Pill(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false, enabled: Boolean = true) {
+fun Pill(
+    text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false, enabled: Boolean = true,
+    danger: Boolean = false,
+) {
     val c = Gs.colors
+    val filled = primary || danger
     PressBox(
         { if (enabled) onClick() }, modifier.height(48.dp), text, RoundedCornerShape(16.dp),
-        background = if (primary) c.accent else c.s2, border = !primary,
-    ) { Label(text, color = if (primary) c.ink else c.text, modifier = Modifier.padding(horizontal = 18.dp)) }
+        background = if (danger) c.bad else if (primary) c.accent else c.s2, border = !filled,
+    ) { Label(text, color = if (filled) c.ink else c.text, modifier = Modifier.padding(horizontal = 18.dp)) }
+}
+
+/** Indeterminate progress ring. Static (no motion) when Reduce motion is on. */
+@Composable
+fun Spinner(color: Color, size: Dp = 32.dp) {
+    val angle: State<Float> = if (LocalReduceMotion.current) remember { mutableStateOf(0f) } else {
+        rememberInfiniteTransition(label = "spin").animateFloat(
+            0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "spin",
+        )
+    }
+    Canvas(Modifier.size(size)) {
+        val sw = this.size.width * 0.11f
+        rotate(angle.value) {
+            drawArc(
+                color, 0f, 270f, false, Offset(sw / 2, sw / 2), Size(this.size.width - sw, this.size.height - sw),
+                style = Stroke(sw, cap = StrokeCap.Round),
+            )
+        }
+    }
+}
+
+/** A dot and a caption per step, the first [done] lit: where a multi-step wait currently is. */
+@Composable
+fun StepDots(labels: List<String>, done: Int) {
+    val c = Gs.colors
+    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        labels.forEachIndexed { i, label ->
+            val on = i < done
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (on) c.accent else c.s3))
+                Label(label, color = if (on) c.text else c.dim, style = Gs.type.small)
+            }
+        }
+    }
 }
 
 @Composable
@@ -196,22 +245,28 @@ fun Slider(value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Floa
         val raw = range.start + f * (range.endInclusive - range.start)
         return (Math.round(raw / step) * step).coerceIn(range.start, range.endInclusive)
     }
-    Box(
-        Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "$description %.1f".format(value) }
+    BoxWithConstraints(
+        Modifier.fillMaxWidth().height(44.dp).semantics { contentDescription = "$description %.1f".format(value) }
             .pointerInput(range) { detectTapGestures { onChange(at(it.x, size.width.toFloat())) } }
             .pointerInput(range) { detectDragGestures { ch, _ -> ch.consume(); onChange(at(ch.position.x, size.width.toFloat())) } },
         contentAlignment = Alignment.CenterStart,
     ) {
+        val thumb = 24.dp
         Box(Modifier.fillMaxWidth().height(8.dp).clip(CircleShape).background(c.s3))
         Box(Modifier.fillMaxWidth(frac).height(8.dp).clip(CircleShape).background(c.accent))
+        // a handle, so it is clear where the value is and what to drag
+        Box(
+            Modifier.offset(x = (maxWidth - thumb) * frac).size(thumb).clip(CircleShape).background(c.text)
+                .border(3.dp, c.accent, CircleShape),
+        )
     }
 }
 
-/** Bottom sheet over everything: scrim, tap outside to dismiss. */
+/** Bottom sheet over everything: scrim, tap outside to dismiss. A lighter [scrim] keeps what is behind it readable. */
 @Composable
-fun Sheet(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+fun Sheet(onDismiss: () -> Unit, scrim: Color = Color(0x99000000), content: @Composable () -> Unit) {
     val c = Gs.colors
-    Box(Modifier.fillMaxSize().background(Color(0x99000000)).pointerInput(Unit) { detectTapGestures { onDismiss() } }, contentAlignment = Alignment.BottomCenter) {
+    Box(Modifier.fillMaxSize().background(scrim).pointerInput(Unit) { detectTapGestures { onDismiss() } }, contentAlignment = Alignment.BottomCenter) {
         Column(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(c.s1)
                 .border(1.dp, c.line, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))

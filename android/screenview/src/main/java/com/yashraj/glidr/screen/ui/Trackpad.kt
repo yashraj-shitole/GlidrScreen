@@ -7,12 +7,15 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -128,7 +131,13 @@ fun Trackpad(
                     y += step
                 }
             }
-            if (!touching) Label("Trackpad", color = c.dim, modifier = Modifier.align(Alignment.Center))
+            if (!touching) {
+                Column(Modifier.align(Alignment.Center).padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Label("Trackpad", color = c.dim)
+                    Label("Tap: click   Two-finger tap: right-click", color = c.dim, style = Gs.type.small)
+                    Label("Two fingers: scroll   Tap, then drag: drag", color = c.dim, style = Gs.type.small)
+                }
+            }
         }
         ScrollStrip(client, prefs)
     }
@@ -140,7 +149,8 @@ private fun ScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
     val p by rememberUpdatedState(prefs)
     val line = c.line
     Box(
-        Modifier.width(44.dp).fillMaxHeight().background(c.s2)
+        // This strip is on the screen edge, where Android's back swipe starts: keep that gesture off it.
+        Modifier.width(44.dp).fillMaxHeight().background(c.s2).systemGestureExclusion()
             .pointerInput(client) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)

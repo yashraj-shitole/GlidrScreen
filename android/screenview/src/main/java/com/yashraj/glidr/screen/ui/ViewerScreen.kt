@@ -42,7 +42,7 @@ import com.yashraj.glidr.screen.ViewerPrefs
 import com.yashraj.glidr.screen.net.ConnState
 import com.yashraj.glidr.screen.net.ScreenClient
 
-private enum class Overlay { None, Keyboard, Displays, Settings }
+private enum class Overlay { None, Keyboard, Displays, Settings, ConfirmExit }
 
 @Composable
 fun ViewerScreen(
@@ -72,11 +72,18 @@ fun ViewerScreen(
         if (prefs.haptics) view.performHapticFeedback(if (strong) HapticFeedbackConstants.LONG_PRESS else HapticFeedbackConstants.VIRTUAL_KEY)
     }
 
-    BackHandler { if (overlay != Overlay.None) overlay = Overlay.None else onExit() }
+    val live = state is ConnState.Live
+    // A back swipe is easy to trigger by accident while using the pad: ask before ending a live session.
+    BackHandler {
+        when {
+            overlay != Overlay.None -> overlay = Overlay.None
+            live -> overlay = Overlay.ConfirmExit
+            else -> onExit()
+        }
+    }
     ViewerWindowEffect(hideBars = landscape)
 
     val sortedMonitors = remember(monitors) { monitors.sortedWith(compareBy({ it.x }, { it.y })) }
-    val live = state is ConnState.Live
     val hostWidth = monitors.firstOrNull { it.id == active }?.w ?: 1920
 
     val video: @Composable (Modifier) -> Unit = { mod ->
@@ -140,6 +147,14 @@ fun ViewerScreen(
             Overlay.Keyboard -> KeyboardSheet(client, haptic) { overlay = Overlay.None }
             Overlay.Displays -> MonitorSheet(client) { overlay = Overlay.None }
             Overlay.Settings -> SettingsSheet(client, prefs, onPrefs, onDisconnect = onExit) { overlay = Overlay.None }
+            Overlay.ConfirmExit -> Sheet({ overlay = Overlay.None }) {
+                Label("Disconnect from $hostName?", maxLines = 2, style = Gs.type.body)
+                Label("The session ends and you will need to connect again.", color = c.dim, style = Gs.type.small)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Pill("Stay", { overlay = Overlay.None }, Modifier.weight(1f), primary = true)
+                    Pill("Disconnect", onExit, Modifier.weight(1f))
+                }
+            }
             Overlay.None -> {}
         }
     }
@@ -173,19 +188,46 @@ private fun TopBar(
     }
 }
 
+/** How far a first connection has come: 1 contacting, 2 waiting for the PC's answer, 3 opening the direct link. */
+private fun stepsDone(step: String) = when {
+    step.startsWith("Opening") -> 3
+    step.contains("aiting") -> 2
+    else -> 1
+}
+
 @Composable
 private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, onExit: () -> Unit) {
     val c = Gs.colors
+    // The ICE / candidate line is for troubleshooting: shown on failure, or when asked for, never by default.
+    var details by remember { mutableStateOf(false) }
     val text = when (state) {
         is ConnState.Connecting -> state.step + "..."
         is ConnState.Reconnecting -> "Connection lost. Reconnecting (${state.attempt})..."
         is ConnState.Failed -> state.reason
         else -> null
     } ?: return
+    val busy = state is ConnState.Connecting || state is ConnState.Reconnecting
+    val center = androidx.compose.ui.text.style.TextAlign.Center
     Box(Modifier.fillMaxSize().background(if (state is ConnState.Failed) c.bg else Color(0xB3000000)), contentAlignment = Alignment.Center) {
         Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Label(text, color = if (state is ConnState.Failed) c.bad else c.text, style = Gs.type.body)
-            if (diag.isNotEmpty() && state !is ConnState.Live) Label(diag, color = c.dim, style = Gs.type.mono)
+            if (busy) Spinner(c.accent)
+            if (state is ConnState.Failed) {
+                // a short red headline, then the explanation in a calmer colour
+                val (head, detail) = TimeText.splitReason(text)
+                Label(head, color = c.bad, style = Gs.type.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, textAlign = center))
+                if (detail.isNotEmpty()) Label(detail, color = c.dim, style = Gs.type.body.copy(textAlign = center))
+            } else {
+                Label(text, color = c.text, style = Gs.type.body.copy(textAlign = center))
+            }
+            if (state is ConnState.Connecting) StepDots(listOf("Contact", "Wait", "Connect"), stepsDone(state.step))
+            if (diag.isNotEmpty() && (state is ConnState.Failed || details)) Label(diag, color = c.dim, style = Gs.type.mono)
+            if (busy && diag.isNotEmpty()) {
+                Label(
+                    if (details) "Hide details" else "Details", color = c.dim, style = Gs.type.small,
+                    modifier = Modifier.clickable { details = !details }.padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+            if (busy) Pill("Cancel", onExit)
             if (state is ConnState.Failed) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Pill("Back", onExit)

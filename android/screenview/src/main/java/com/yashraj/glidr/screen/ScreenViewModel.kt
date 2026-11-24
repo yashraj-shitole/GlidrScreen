@@ -3,6 +3,7 @@ package com.yashraj.glidr.screen
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yashraj.glidr.screen.net.ConnState
 import com.yashraj.glidr.screen.net.ScreenClient
 import com.yashraj.glidr.screen.signal.PairedPc
 import com.yashraj.glidr.screen.signal.PairingParser
@@ -49,15 +50,23 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
     fun clearPairError() { _pairError.value = null }
 
     private var nameJob: Job? = null
+    private var liveJob: Job? = null
 
     fun connect(pc: PairedPc) {
         nameJob?.cancel()
+        liveJob?.cancel()
         _client.value?.close()
         store.touch(pc)
         _pcs.value = store.load()
         val c = ScreenClient(getApplication(), pc, viewModelScope)
         _client.value = c
         c.start()
+        // "Last connected" means a session really went live, not that a connection was tried
+        liveJob = viewModelScope.launch {
+            c.state.first { it is ConnState.Live }
+            store.markLive(pc)
+            _pcs.value = store.load()
+        }
         if (pc.name == UNNAMED_PC) {
             // paired with a typed code: keep the name the PC reports, so the list does not say "PC" forever
             nameJob = viewModelScope.launch {
@@ -70,6 +79,7 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnect() {
         nameJob?.cancel()
+        liveJob?.cancel()
         _client.value?.close()
         _client.value = null
     }

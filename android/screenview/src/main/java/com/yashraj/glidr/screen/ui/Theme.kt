@@ -29,6 +29,9 @@ private val ACCENTS = listOf(
     Color(0xFFFF7FB0) to Color(0xFFA8265B), // Rose
 )
 
+/** The accent colours on offer, in the order [screenColors] takes them. */
+val AccentSwatches: List<Color> get() = ACCENTS.map { it.first }
+
 fun screenColors(light: Boolean, accentIndex: Int): ScreenColors {
     val (ac, deep) = ACCENTS[accentIndex.coerceIn(0, ACCENTS.lastIndex)]
     val ink = Color(0xFF0B0C0A)

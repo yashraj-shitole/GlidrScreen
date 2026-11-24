@@ -2,14 +2,25 @@ package com.yashraj.glidr.screen.ui
 
 import android.content.Intent
 import androidx.core.net.toUri
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yashraj.glidr.screen.ScreenViewModel
+import com.yashraj.glidr.screen.signal.DEFAULT_SIGNAL_BASE
+import com.yashraj.glidr.screen.signal.PairingInfo
+import com.yashraj.glidr.screen.signal.PairingParser
 import com.yashraj.glidr.screen.update.UpdateSource
 
 /**
@@ -40,30 +51,62 @@ fun GlidrScreenApp(
 
     LaunchedEffect(updates) { updates?.let(viewModel::configureUpdates) }
 
+    // Any web page or app can open a glidr:// link, so a link for a PC that is not paired yet is confirmed first.
+    // A link would otherwise pick the key and signaling server this phone talks to.
+    var linkToConfirm by remember { mutableStateOf<Pair<String, PairingInfo>?>(null) }
+
     LaunchedEffect(pendingLink) {
         if (pendingLink != null) {
-            viewModel.pair(pendingLink)?.let { viewModel.connect(it) }
+            val info = PairingParser.parse(pendingLink)
+            when {
+                info == null -> viewModel.pair(pendingLink) // sets the "does not look like a pairing code" error
+                pcs.any { it.key == info.keyText } -> viewModel.pair(pendingLink)?.let { viewModel.connect(it) }
+                else -> linkToConfirm = pendingLink to info
+            }
             onLinkConsumed()
         }
     }
 
     ScreenTheme(light = prefs.light, accent = prefs.accent) {
-        val active = client
-        if (active != null) {
-            ViewerScreen(active, prefs, viewModel::updatePrefs, onExit = viewModel::disconnect)
-        } else {
-            HomeScreen(
-                pcs = pcs,
-                pairError = pairError,
-                onPair = viewModel::pair,
-                onClearError = viewModel::clearPairError,
-                onConnect = viewModel::connect,
-                onForget = viewModel::forget,
-                onClose = onClose,
-                update = if (updates != null) UpdateUi(updates.currentVersion, update, viewModel::checkForUpdates) { url ->
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
-                } else null,
-            )
+        Box(Modifier.fillMaxSize()) {
+            val active = client
+            if (active != null) {
+                ViewerScreen(active, prefs, viewModel::updatePrefs, onExit = viewModel::disconnect)
+            } else {
+                HomeScreen(
+                    pcs = pcs,
+                    pairError = pairError,
+                    onPair = viewModel::pair,
+                    onClearError = viewModel::clearPairError,
+                    onConnect = viewModel::connect,
+                    onForget = viewModel::forget,
+                    onRename = viewModel::rename,
+                    onClose = onClose,
+                    update = if (updates != null) UpdateUi(updates.currentVersion, update, viewModel::checkForUpdates) { url ->
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
+                    } else null,
+                )
+            }
+            linkToConfirm?.let { (text, info) ->
+                val c = Gs.colors
+                Sheet({ linkToConfirm = null }) {
+                    Label("Pair with ${info.hostName}?", maxLines = 2, style = Gs.type.body)
+                    Label(
+                        "This link was opened from outside the app. Only continue if it came from Glidr Screen on your own PC.",
+                        color = c.dim, style = Gs.type.small,
+                    )
+                    if (info.signalBase != DEFAULT_SIGNAL_BASE) {
+                        Label("Signaling server: ${info.signalBase}", color = c.dim, style = Gs.type.small, maxLines = 2)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Pill("Cancel", { linkToConfirm = null }, Modifier.weight(1f))
+                        Pill("Pair", {
+                            linkToConfirm = null
+                            viewModel.pair(text)?.let { viewModel.connect(it) }
+                        }, Modifier.weight(1f), primary = true)
+                    }
+                }
+            }
         }
     }
 }

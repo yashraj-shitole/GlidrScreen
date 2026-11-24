@@ -22,7 +22,7 @@
   </section>
 
   <section id="live" class="card hidden">
-    <div class="row between"><h2 id="liveName">Phone</h2><button id="disconnect" class="ghost">Disconnect</button></div>
+    <div class="row between"><div class="livehead"><i></i><b id="liveName">Phone</b><small>Connected</small></div><button id="disconnect" class="ghost">Disconnect</button></div>
     <div class="stats" id="stats"></div>
   </section>
 
@@ -36,6 +36,7 @@
       <div class="qrwrap"><img id="qr" alt="Pairing QR code" width="200" height="200"></div>
       <p class="dim center">Scan with the phone, or type this code:</p>
       <button id="code" class="code" title="Click to copy"></button>
+      <p class="dim center small" id="copyHint">Click the code to copy it</p>
       <div class="row center gap">
         <button id="copyLink" class="ghost">Copy link</button>
         <button id="cancelPairing" class="ghost">Cancel</button>
@@ -53,6 +54,7 @@
   <section class="card">
     <h2>Displays</h2>
     <div id="monitors" class="monitors"></div>
+    <p class="dim small" id="monitorsHint">Your phone chooses which display to view. The one it is viewing is outlined.</p>
   </section>
 
   <section class="card">
@@ -67,7 +69,7 @@
     <details>
       <summary>Advanced</summary>
       <label class="col"><span>PC name</span><input type="text" id="hostName" maxlength="40"></label>
-      <label class="col"><span>Signaling server<small>Only used to introduce the two devices, end-to-end encrypted. Any ntfy server works.</small></span><input type="text" id="signalBase" spellcheck="false"></label>
+      <label class="col"><span>Signaling server<small>Only used to introduce the two devices, end-to-end encrypted. Any ntfy server works. Set it before pairing: phones already paired keep the old one.</small></span><input type="text" id="signalBase" spellcheck="false"></label>
       <p class="dim small" id="signalStatus"></p>
     </details>
   </section>
