@@ -65,6 +65,7 @@ fun ViewerScreen(
     val diag by client.diag.collectAsState()
     var overlay by remember { mutableStateOf(Overlay.None) }
     val zoom = remember { VideoViewState() }
+    val extras = rememberViewerExtras() // HOOK 1/3: locked banner, clipboard, follow pointer, mute (see Banners.kt)
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val view = LocalView.current
 
@@ -105,6 +106,7 @@ fun ViewerScreen(
                     if (!control) Tag("View only")
                     if (zoom.zoomed) Box(Modifier.size(44.dp).clip(CircleShape).background(Color80).clickable { zoom.reset() }, contentAlignment = Alignment.Center) { Icon(Ico.Reset, c.text) }
                 }
+                ViewerVideoOverlays(client, zoom, extras) // HOOK 2/3
                 if (switching) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("Switching display...") }
             }
             StateOverlay(state, diag, onRetry = client::retry, onExit = onExit)
@@ -157,6 +159,7 @@ fun ViewerScreen(
             }
             Overlay.None -> {}
         }
+        ViewerExtraSheets(client, extras) // HOOK 3/3
     }
 }
 
