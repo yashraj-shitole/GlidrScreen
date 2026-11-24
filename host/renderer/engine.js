@@ -3,6 +3,7 @@
 // The main process owns signaling, input injection and pairing; this file only owns the peer connection.
 // A small "viewer" role is included so the host can self-test the whole protocol without a phone.
 const bridge = window.engineBridge;
+// `Adaptation` (bandwidth adaptation + delivery modes) comes from ../src/adaptation.js, loaded by engine.html.
 const DEFAULT_FPS = 24;
 // Fallback table; the host (src/media.js) normally sends the resolved fps / bitrate / height / contentHint.
 const QUALITY = {
@@ -19,18 +20,25 @@ let viewer = null; // self-test only
 const emit = (o) => bridge.emit(o);
 
 /** Effective settings from a start / quality command: fps per session, never a module constant. */
-function resolve(cmd) {
+function adaptConfig(q) {
+  return { mode: q.mode, maxBitrate: q.bitrate, maxHeight: q.height, fps: q.fps };
+}
+
+function resolve(cmd, prevMode) {
   const preset = QUALITY[cmd.preset || cmd.quality] ? (cmd.preset || cmd.quality) : 'auto';
   const base = QUALITY[preset];
   const num = (v, d) => (Number.isFinite(v) && v > 0 ? v : d);
   const saver = cmd.saver === true;
   const fps = num(cmd.fps, saver ? 15 : DEFAULT_FPS);
+  const mode = Adaptation.normalizeMode(cmd.mode, prevMode);
   return {
-    preset, saver, fps,
+    preset, saver, fps, mode,
     bitrate: num(cmd.bitrate, Math.round(base.bitrate * (saver ? 0.5 : 1))),
     height: num(cmd.height, base.height),
     // 'motion' keeps the frame rate and lets resolution give way under congestion; 'detail' does the opposite
-    contentHint: cmd.contentHint === 'detail' || cmd.contentHint === 'motion' ? cmd.contentHint : (saver || fps < 24 ? 'detail' : 'motion'),
+    // latency / clarity modes force the hint; auto keeps the preset's own
+    contentHint: Adaptation.modeSettings(mode).contentHint
+      || (cmd.contentHint === 'detail' || cmd.contentHint === 'motion' ? cmd.contentHint : (saver || fps < 24 ? 'detail' : 'motion')),
   };
 }
 
@@ -103,10 +111,12 @@ async function applyQuality() {
   const p = host.sender.getParameters();
   if (!p.encodings || !p.encodings.length) p.encodings = [{}];
   const e = p.encodings[0];
-  e.maxBitrate = q.bitrate;
-  e.maxFramerate = q.fps;
-  e.scaleResolutionDownBy = Math.max(1, srcH / q.height);
-  p.degradationPreference = 'maintain-framerate';
+  // The preset gives the ceiling; the adaptation lowers it (smaller picture, bitrate, in clarity mode fps) under congestion.
+  const ad = host.adapt.current();
+  e.maxBitrate = Math.min(q.bitrate, ad.maxBitrate);
+  e.maxFramerate = ad.maxFramerate ? Math.min(q.fps, ad.maxFramerate) : q.fps;
+  e.scaleResolutionDownBy = Math.max(1, srcH / q.height) * ad.scaleDownBy;
+  p.degradationPreference = Adaptation.modeSettings(q.mode).degradationPreference;
   try { await host.sender.setParameters(p); } catch (err) { console.warn('setParameters', err); }
 }
 
@@ -115,7 +125,7 @@ async function hostStart(cmd) {
   const q = resolve(cmd);
   const { stream, audioTrack } = await capture(cmd.sourceId, q, cmd.audio === true);
   const pc = new RTCPeerConnection({ iceServers: cmd.iceServers, bundlePolicy: 'max-bundle' });
-  const s = { sid: cmd.sid, pc, stream, audioTrack, q, capFps: q.fps, dc: null, sender: null };
+  const s = { sid: cmd.sid, pc, stream, audioTrack, q, adapt: Adaptation.create(adaptConfig(q)), capFps: q.fps, dc: null, sender: null };
   host = s;
   const tr = pc.addTransceiver(stream.getVideoTracks()[0], { direction: 'sendonly', streams: [stream] });
   s.sender = tr.sender;
@@ -192,13 +202,17 @@ function startStats(s) {
     if (pair) { local = byId[pair.localCandidateId]; remote = byId[pair.remoteCandidateId]; }
     if (out?.codecId) codec = byId[out.codecId]?.mimeType;
     if (!out) return;
+    const rttMs = Number.isFinite(pair?.currentRoundTripTime) ? pair.currentRoundTripTime * 1000 : null;
     const kbps = s.lastT ? Math.round(((out.bytesSent - s.lastBytes) * 8) / ((out.timestamp - s.lastT))) : 0;
     s.lastBytes = out.bytesSent; s.lastT = out.timestamp;
+    const ad = s.adapt.sample({ qualityLimitationReason: out.qualityLimitationReason, rttMs, bitrateKbps: kbps, fps: out.framesPerSecond || 0 });
+    if (ad.changed) applyQuality(); // setParameters only, no renegotiation
     emit({
       t: 'stats', sid: s.sid,
       fps: Math.round(out.framesPerSecond || 0), w: out.frameWidth, h: out.frameHeight, kbps,
       codec, encoder: out.encoderImplementation, rtt: pair?.currentRoundTripTime ?? null,
       path: local ? (remote?.candidateType === 'relay' ? 'relay' : local.candidateType) : null, limit: out.qualityLimitationReason,
+      mode: s.q.mode, adapt: ad.level, // active delivery mode; adaptation step (0 = preset ceiling)
     });
   }, 2000);
 }
@@ -264,7 +278,13 @@ async function run(cmd) {
       case 'answer': await hostAnswer(cmd); break;
       case 'switch': await hostSwitch(cmd); break;
       case 'send': hostSend(cmd); break;
-      case 'quality': if (host) { host.q = resolve(cmd); await applyQuality(); } break;
+      case 'quality':
+        if (host) {
+          host.q = resolve(cmd, host.q.mode);
+          host.adapt.configure(adaptConfig(host.q)); // back to the ceiling only when mode / preset / fps changed
+          await applyQuality();
+        }
+        break;
       case 'stop': hostStop(cmd.sid); break;
       case 'v-start': await viewerStart(cmd); break;
       case 'v-send': viewer?.dc?.send(cmd.data); break;
