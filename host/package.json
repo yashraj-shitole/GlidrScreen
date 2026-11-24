@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/crypto.test.js && node test/updates.test.js && node test/autostart.test.js",
+    "test": "node test/crypto.test.js && node test/updates.test.js && node test/autostart.test.js && node test/store.test.js && node test/signaling-reconnect.test.js && node test/pausetimer.test.js && node test/power.test.js && node test/links.test.js",
     "selftest": "electron . --selftest",
     "dist": "node scripts/pkg.js"
   },

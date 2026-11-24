@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 let state = null;
 let editing = false;
+const TOGGLES = ['allowControl', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart'];
 
 const STATUS = {
   waiting: ['waiting', 'Ready'], connecting: ['connecting', 'Connecting'],
@@ -36,7 +37,7 @@ function render(s) {
   const [cls, label] = STATUS[s.status];
   const offline = s.sharing && s.signal === 'offline';
   $('pill').className = 'pill ' + (offline ? 'offline' : cls);
-  $('pillText').textContent = offline ? 'No internet' : label;
+  $('pillText').textContent = offline ? 'No internet' : (s.status === 'paused' && s.pausedLabel) || label;
 
   $('live').classList.toggle('hidden', !s.device);
   if (s.device) {
@@ -72,12 +73,17 @@ function render(s) {
     nameRow.append(nameEl);
     left.append(nameRow);
     const sm = document.createElement('small');
-    sm.textContent = d.connected ? 'Connected now' : `Last seen ${ago(d.lastSeen)}`;
+    sm.textContent = d.needsRepair ? 'Pair again: its key cannot be read on this PC' : d.connected ? 'Connected now' : `Last seen ${ago(d.lastSeen)}`;
     left.append(sm);
     const btn = document.createElement('button');
     btn.className = 'ghost danger'; btn.textContent = 'Remove';
     btn.onclick = () => { if (confirm(`Remove ${d.name}? It will need to be paired again.`)) window.glidr.act('revoke', d.id); };
-    li.append(left, btn);
+    if (d.needsRepair) {
+      const fix = document.createElement('button');
+      fix.className = 'ghost'; fix.textContent = 'Pair again';
+      fix.onclick = () => window.glidr.act('repair', d.id);
+      li.append(left, fix, btn);
+    } else li.append(left, btn);
     $('devices').append(li);
   }
 
@@ -94,8 +100,7 @@ function render(s) {
 
   if (!editing) {
     $('sharing').checked = s.sharing;
-    $('allowControl').checked = s.settings.allowControl;
-    $('autostart').checked = s.settings.autostart;
+    for (const id of TOGGLES) $(id).checked = s.settings[id];
     $('quality').value = s.settings.quality;
     $('codec').value = s.settings.codec;
     $('hostName').value = s.settings.hostName;
@@ -128,7 +133,7 @@ $('quit').onclick = (e) => { e.preventDefault(); window.glidr.act('quit'); };
 $('checkUpdate').onclick = (e) => { e.preventDefault(); window.glidr.act('checkUpdate'); };
 $('updateGet').onclick = () => window.glidr.act('openUpdate');
 $('sharing').onchange = (e) => window.glidr.act('sharing', e.target.checked);
-for (const id of ['allowControl', 'autostart']) $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.checked });
+for (const id of TOGGLES) $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.checked });
 for (const id of ['quality', 'codec']) $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.value });
 for (const id of ['hostName', 'signalBase']) {
   $(id).onfocus = () => { editing = true; };

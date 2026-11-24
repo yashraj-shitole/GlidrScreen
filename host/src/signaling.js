@@ -22,6 +22,7 @@ class Signaling extends EventEmitter {
   setSlots(slots) {
     this.slots = new Map();
     for (const s of slots) {
+      if (!s.key || s.needsRepair) continue; // key could not be decrypted: needs pairing again, nothing to subscribe to
       const d = deriveSlot(Buffer.from(s.key, 'base64url'));
       this.slots.set(d.topic, { id: s.id, encKey: d.encKey });
     }
@@ -33,6 +34,17 @@ class Signaling extends EventEmitter {
     this.base = base.replace(/\/+$/, '');
     this.lastId = null;
     if (this.running) this.#restart();
+  }
+
+  /**
+   * Drops the current stream and opens a new one right away with the backoff reset. For after the PC wakes from sleep
+   * or unlocks: the old connection is usually dead but would only be noticed by the 120 s watchdog. The resume point
+   * (lastId) is kept, so messages sent in the meantime are replayed by the server.
+   */
+  reconnect() {
+    if (!this.running) return;
+    this.backoff = 1000;
+    this.#restart();
   }
 
   start() {

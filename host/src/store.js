@@ -6,33 +6,93 @@ const os = require('os');
 const { newKey } = require('./crypto');
 
 const UNCLAIMED_TTL_MS = 15 * 60 * 1000;
+/** Pairing keys are stored as `enc:v1:<base64 of safeStorage ciphertext>`. Base64url keys never contain ':'. */
+const ENC_PREFIX = 'enc:v1:';
 
 const DEFAULTS = {
   signalBase: 'https://ntfy.sh',
   hostName: os.hostname(),
   sharing: true,
   allowControl: true,
+  keepAwake: true, // hold off sleep while sharing is on
+  endOnLock: false, // end the phone session when this PC locks
+  shareAudio: false, // send PC audio to the phone (read by the engine)
   quality: 'auto', // auto | low | balanced | high
   codec: 'auto', // auto | h264 | vp8
   stun: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
   turn: null, // optional {urls, username, credential}; off by default, TURN would relay media through a server
-  slots: [], // {id, key(b64url), name, createdAt, claimedAt, lastSeen}
+  slots: [], // {id, key(b64url), name, createdAt, claimedAt, lastSeen, needsRepair?}
 };
 
 class Store {
-  constructor(dir) {
+  /**
+   * @param {string} dir settings folder
+   * @param {{safeStorage?: {isEncryptionAvailable():boolean, encryptString(s:string):Buffer, decryptString(b:Buffer):string}|null}} [deps]
+   *   safeStorage defaults to Electron's, loaded lazily; pass null to force plaintext.
+   */
+  constructor(dir, deps = {}) {
     this.file = path.join(dir, 'settings.json');
-    this.data = { ...DEFAULTS };
-    try {
-      this.data = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(this.file, 'utf8')) };
-    } catch { /* first run */ }
+    this._safe = deps.safeStorage;
+    /** slot id -> stored `enc:v1:` string of a key that could not be decrypted, kept so a later load can retry */
+    this.locked = new Map();
+    let raw = null;
+    try { raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { /* first run */ }
+    this.data = { ...DEFAULTS, ...(raw || {}), slots: Array.isArray(raw?.slots) ? raw.slots.map((s) => ({ ...s })) : [] };
+    const migrate = this.#openKeys();
     this.pruneSlots();
+    if (migrate && this.#canEncrypt()) this.save(); // existing plaintext keys: rewrite the file encrypted
+  }
+
+  #safeStorage() {
+    if (this._safe === undefined) {
+      try { this._safe = require('electron').safeStorage || null; } catch { this._safe = null; }
+    }
+    return this._safe;
+  }
+
+  #canEncrypt() {
+    try { const s = this.#safeStorage(); return !!s && !!s.isEncryptionAvailable(); } catch { return false; }
+  }
+
+  /** Decrypts stored keys in place. Returns whether any slot still held a plaintext key. */
+  #openKeys() {
+    let plaintext = false;
+    for (const s of this.data.slots) {
+      delete s.needsRepair;
+      if (typeof s.key !== 'string' || !s.key) continue;
+      if (!s.key.startsWith(ENC_PREFIX)) { plaintext = true; continue; }
+      const stored = s.key;
+      try {
+        if (!this.#canEncrypt()) throw new Error('encryption unavailable');
+        s.key = this.#safeStorage().decryptString(Buffer.from(stored.slice(ENC_PREFIX.length), 'base64'));
+        if (!s.key) throw new Error('empty key');
+      } catch {
+        // Unreadable here (other Windows user, restored profile): keep the slot and the ciphertext, ask for re-pairing.
+        this.locked.set(s.id, stored);
+        s.key = '';
+        s.needsRepair = true;
+      }
+    }
+    return plaintext;
+  }
+
+  #seal(key) {
+    if (!key || !this.#canEncrypt()) return key;
+    try { return ENC_PREFIX + this.#safeStorage().encryptString(key).toString('base64'); } catch { return key; }
+  }
+
+  #serialize() {
+    const slots = this.data.slots.map((s) => {
+      const { needsRepair, ...rest } = s;
+      return { ...rest, key: needsRepair ? (this.locked.get(s.id) || '') : this.#seal(s.key) };
+    });
+    return JSON.stringify({ ...this.data, slots }, null, 2);
   }
 
   save() {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
     const tmp = this.file + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
+    fs.writeFileSync(tmp, this.#serialize(), { mode: 0o600 });
     fs.renameSync(tmp, this.file);
   }
 
@@ -74,8 +134,9 @@ class Store {
 
   revoke(id) {
     this.data.slots = this.data.slots.filter((s) => s.id !== id);
+    this.locked.delete(id);
     this.save();
   }
 }
 
-module.exports = { Store, UNCLAIMED_TTL_MS };
+module.exports = { Store, UNCLAIMED_TTL_MS, ENC_PREFIX };
