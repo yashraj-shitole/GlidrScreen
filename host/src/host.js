@@ -4,7 +4,9 @@ const { EventEmitter } = require('events');
 const displays = require('./displays');
 const media = require('./media');
 const { ClipboardSync, CursorStream } = require('./sync');
+const permissions = require('./permissions');
 
+const MAX_TIMER_MS = 2 ** 31 - 1; // setTimeout fires at once above this
 const CONNECT_TIMEOUT_MS = 30_000;
 const DISCONNECT_GRACE_MS = 10_000;
 const MAX_REQ_AGE_MS = 90_000;
@@ -49,7 +51,30 @@ class HostCore extends EventEmitter {
     this.#changed();
   }
 
-  refreshSlots() { this.sig.setSlots(this.store.get('slots')); this.#changed(); }
+  refreshSlots() {
+    this.sig.setSlots(this.store.get('slots'));
+    if (this.sess) this.#armLimit(this.sess); // a changed access length applies to a running session too
+    this.#changed();
+  }
+
+  /** Control input is allowed only with the PC-wide switch on and a phone that is not view only. */
+  #canControl(s) {
+    return permissions.canControl(this.store.slot(s.slotId), this.store.get('allowControl'));
+  }
+
+  /** (Re)arms the timer that ends the session at its time limit or when the phone's access runs out. */
+  #armLimit(s) {
+    clearTimeout(s.limitTimer);
+    s.limitTimer = null;
+    const deadline = permissions.sessionDeadline(this.store.slot(s.slotId), s.startedAt);
+    if (!deadline) return;
+    s.limitTimer = setTimeout(() => {
+      if (this.sess !== s) return;
+      const d = permissions.sessionDeadline(this.store.slot(s.slotId), s.startedAt);
+      if (d && Date.now() >= d - 2) this.endSession('time limit', true);
+      else this.#armLimit(s); // limit moved (or the timer was clamped): look again
+    }, Math.min(Math.max(0, deadline - Date.now()), MAX_TIMER_MS));
+  }
 
   setSharing(on) {
     this.store.set({ sharing: on });
@@ -91,6 +116,7 @@ class HostCore extends EventEmitter {
     if (this.seen.size > 200) this.seen.delete(this.seen.values().next().value);
     const reply = (obj) => this.sig.publish(slot.key, { from: 'h', sid: msg.sid, ts: Date.now(), ...obj }).catch(() => {});
 
+    if (permissions.isExpired(slot, Date.now())) return reply({ t: 'deny', reason: 'expired' }); // slot is kept
     if (!this.store.get('sharing')) return reply({ t: 'deny', reason: 'paused' });
     if (this.sess && this.sess.slotId !== slotId) return reply({ t: 'busy' });
     if (this.sess) this.endSession('replaced', false);
@@ -107,8 +133,10 @@ class HostCore extends EventEmitter {
       audio: false, // set from the engine's offer: true only when system audio is really being captured
       clip: null, cursor: null,
       timer: setTimeout(() => this.endSession('connect timeout', true), CONNECT_TIMEOUT_MS),
+      startedAt: Date.now(), limitTimer: null,
     };
     this.sess = s;
+    this.#armLimit(s);
     this.#changed();
     try {
       const sourceId = await displays.sourceIdFor(primary.id);
@@ -193,7 +221,7 @@ class HostCore extends EventEmitter {
     const s = this.sess;
     this.#send({
       t: 'hello', v: PROTOCOL, host: this.store.get('hostName'), os: 'Windows', fps: s.fps,
-      control: this.store.get('allowControl'), quality: s.quality,
+      control: this.#canControl(s), quality: s.quality,
       monitors: displays.list(), active: s.monitorId,
       locked: this.locked, audio: s.audio,
     });
@@ -254,7 +282,7 @@ class HostCore extends EventEmitter {
   async #onCtl(s, data) {
     let m;
     try { m = JSON.parse(data); } catch { return; }
-    const control = this.store.get('allowControl');
+    const control = this.#canControl(s);
     if (process.env.GLIDR_DEBUG && m.t !== 'ping') this.emit('log', 'ctl ' + data);
     switch (m.t) {
       case 'ping': this.#send({ t: 'pong', n: m.n, ts: m.ts }); break;
@@ -292,11 +320,11 @@ class HostCore extends EventEmitter {
     this.engine.send({ t: 'switch', sid: s.sid, monitorId: id, sourceId });
   }
 
-  /** "Allow remote control" was switched on the PC: tell the phone so it shows (or clears) "View only". */
+  /** "Allow remote control" or the phone's "View only" was switched on the PC: tell the phone so it shows (or clears) "View only". */
   controlChanged() {
     const s = this.sess;
     if (!s?.live) return;
-    const on = !!this.store.get('allowControl');
+    const on = this.#canControl(s);
     if (!on) this.input.reset(); // release anything the phone was holding
     this.#send({ t: 'control', on });
   }
@@ -328,6 +356,7 @@ class HostCore extends EventEmitter {
     this.sess = null;
     clearTimeout(s.timer);
     clearTimeout(s.graceTimer);
+    clearTimeout(s.limitTimer);
     clearInterval(this.thumbTimer);
     this.thumbTimer = null;
     s.clip?.stop();

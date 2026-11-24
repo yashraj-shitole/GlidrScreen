@@ -7,6 +7,7 @@
 //   frame   base64url( nonce12 || AES-256-GCM(gzip(json)) || tag16 ), AAD "glidr-screen/1"
 const crypto = require('crypto');
 const zlib = require('zlib');
+const { isMac12, isIpv4 } = require('./wol');
 
 const SALT = Buffer.from('glidr-screen/v1');
 const AAD = Buffer.from('glidr-screen/1');
@@ -90,8 +91,13 @@ function open(encKey, frame) {
   }
 }
 
-function toLink(key, hostName, signalBase) {
+/**
+ * Pairing link. Optional [mac] (12 hex digits) and [broadcast] (IPv4) add `&m=<MAC>&b=<ip>` for Wake-on-LAN, and only
+ * when BOTH are valid; otherwise the link is exactly the one older versions produced.
+ */
+function toLink(key, hostName, signalBase, mac, broadcast) {
   const q = new URLSearchParams({ v: '1', k: key.toString('base64url'), n: hostName, s: signalBase });
+  if (isMac12(mac) && isIpv4(broadcast)) { q.append('m', mac.toUpperCase()); q.append('b', broadcast); }
   return `glidr://screen?${q}`;
 }
 
