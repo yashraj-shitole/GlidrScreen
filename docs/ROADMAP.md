@@ -102,7 +102,8 @@ real phone and PC is still untested):
   21 per-phone view-only and expiring access with guest pairing, 22 timed pause, 23 automatic bandwidth
   adaptation with Auto / Fast / Sharp modes, 24 per-PC input profiles, 25 accessibility (labels and
   simple-gesture buttons).
-* Tier 3: 33 `glidr-screen://` automation links (pause, resume, disconnect only).
+* Tier 3: 32 quick actions (lock, sleep, restart, shutdown and PC-defined launchers; off by default, confirm on the
+  dangerous ones), 33 `glidr-screen://` automation links (pause, resume, disconnect only).
 
 Not built: 10 installer and auto-update, 13 connect alert and session log (skipped on purpose), 26 AV1/VP9,
-27-32 and 34-35. App lock uses a PIN only: biometrics need a library the project does not use yet.
+27-31, 34 and 35. App lock uses a PIN only: biometrics need a library the project does not use yet.

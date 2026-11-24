@@ -71,6 +71,11 @@ with a debug key and the PC app is not code-signed, so Windows SmartScreen warns
 * Send files to the PC from the viewer or from the Android share sheet (200 MB limit, saved in DownloadsGlidr on the
   PC, never opened automatically; the PC can switch receiving off).
 
+**Quick actions**
+* Lock, sleep, restart or shut down the PC, or run launchers the PC owner set up, from the viewer. Off by default: the
+  PC owner switches it on and chooses which actions the phone may use. The phone only sends an action ID, restart and
+  shutdown need a confirmation and run after a 15 second delay that can be cancelled.
+
 **Clipboard**
 * Send the phone's clipboard text to the PC, paste the PC's clipboard on the phone, or keep them in sync. Text goes
   straight to the PC over the encrypted link, never through a server (256 KB limit, opt-in).
