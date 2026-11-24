@@ -42,6 +42,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.yashraj.glidr.screen.ViewerPrefs
 import com.yashraj.glidr.screen.net.ConnState
+import com.yashraj.glidr.screen.net.ConnectStages
 import com.yashraj.glidr.screen.net.MouseButton
 import com.yashraj.glidr.screen.net.ScreenClient
 
@@ -66,6 +67,7 @@ fun ViewerScreen(
     val hostName by client.hostName.collectAsState()
     val videoSize by client.videoSize.collectAsState()
     val diag by client.diag.collectAsState()
+    val stage by client.stage.collectAsState()
     var overlay by remember { mutableStateOf(Overlay.None) }
     val zoom = remember { VideoViewState() }
     val extras = rememberViewerExtras() // HOOK 1/3: locked banner, clipboard, follow pointer, mute (see Banners.kt)
@@ -113,7 +115,7 @@ fun ViewerScreen(
                 ViewerVideoOverlays(client, zoom, extras) // HOOK 2/3
                 if (switching) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("Switching display...") }
             }
-            StateOverlay(state, diag, onRetry = client::retry, onExit = onExit)
+            StateOverlay(state, diag, stage, onRetry = client::retry, onExit = onExit)
         }
     }
 
@@ -233,7 +235,7 @@ private fun stepsDone(step: String) = when {
 }
 
 @Composable
-private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, onExit: () -> Unit) {
+private fun StateOverlay(state: ConnState, diag: String, stage: String, onRetry: () -> Unit, onExit: () -> Unit) {
     val c = Gs.colors
     // The ICE / candidate line is for troubleshooting: shown on failure, or when asked for, never by default.
     var details by remember { mutableStateOf(false) }
@@ -266,6 +268,7 @@ private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, on
             }
             if (busy) Pill("Cancel", onExit)
             if (state is ConnState.Failed) {
+                ConnectStages.failureLine(stage)?.let { Label(it, color = c.dim, style = Gs.type.small.copy(textAlign = center)) }
                 Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     Pill("Back", onExit)
                     Pill("Try again", onRetry, primary = true)

@@ -22,6 +22,13 @@ enum class Quality(val wire: String, val label: String) {
     companion object { fun of(wire: String?) = entries.firstOrNull { it.wire == wire } ?: Auto }
 }
 
+/** What the PC encoder favours: the optional `mode` of the `quality` message. */
+enum class StreamMode(val wire: String, val label: String) {
+    Auto("auto", "Auto"), Fast("latency", "Fast"), Sharp("clarity", "Sharp");
+
+    companion object { fun of(wire: String?) = entries.firstOrNull { it.wire == wire } ?: Auto }
+}
+
 enum class MouseButton(val wire: String) { Left("l"), Right("r"), Middle("m") }
 
 /** Builders for the JSON messages sent over the `ctl` data channel (see docs/PROTOCOL.md). */
@@ -39,11 +46,15 @@ object Msg {
     fun monitor(id: Long) = JSONObject().put("t", "monitor").put("id", id)
     fun thumbs(on: Boolean) = JSONObject().put("t", "thumbs").put("on", on)
 
-    /** [fps] and [saver] are optional on the wire: omitted when null so an older host sees exactly the old message. */
-    fun quality(q: Quality, fps: Int? = null, saver: Boolean? = null): JSONObject {
+    /**
+     * [fps], [saver] and [mode] are optional on the wire: omitted when null so an older host sees exactly the old
+     * message. [mode] is "auto", "latency" or "clarity" (see [StreamMode]); the phone's own default is Auto.
+     */
+    fun quality(q: Quality, fps: Int? = null, saver: Boolean? = null, mode: StreamMode? = null): JSONObject {
         val o = JSONObject().put("t", "quality").put("p", q.wire)
         if (fps != null) o.put("fps", fps)
         if (saver != null) o.put("saver", saver)
+        if (mode != null) o.put("mode", mode.wire)
         return o
     }
 

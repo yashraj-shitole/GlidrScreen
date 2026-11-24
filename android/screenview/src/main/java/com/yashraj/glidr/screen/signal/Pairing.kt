@@ -20,12 +20,22 @@ data class PairedPc(
     val lastUsed: Long = 0L,
     /** When a session with this PC last went live (0 = never). [lastUsed] also moves on attempts that failed. */
     val lastLive: Long = 0L,
+    /** The PC's network adapter address (12 hex chars) and IPv4 broadcast address, when the PC shared them: enables Wake-on-LAN. */
+    val mac: String? = null,
+    val broadcast: String? = null,
 ) {
     val keyBytes: ByteArray get() = Base64.getUrlDecoder().decode(key)
 }
 
 /** What a pairing QR / link / typed code carries. */
-data class PairingInfo(val key: ByteArray, val hostName: String, val signalBase: String) {
+data class PairingInfo(
+    val key: ByteArray,
+    val hostName: String,
+    val signalBase: String,
+    /** Optional `m=` and `b=` of the link, already validated (see [WakeOnLan]); null when absent or malformed. */
+    val mac: String? = null,
+    val broadcast: String? = null,
+) {
     /** The key as [PairedPc.key] stores it, to tell whether this PC is already paired. */
     val keyText: String get() = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
 }
@@ -46,6 +56,8 @@ object PairingParser {
             key,
             q["n"]?.take(40)?.ifBlank { null } ?: UNNAMED_PC,
             q["s"]?.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: DEFAULT_SIGNAL_BASE,
+            WakeOnLan.cleanMac(q["m"]),
+            WakeOnLan.cleanBroadcast(q["b"]),
         )
     } catch (_: Exception) {
         null
@@ -67,7 +79,10 @@ class PairingStore(context: Context) {
         val arr = JSONArray(prefs.getString("pcs", "[]"))
         (0 until arr.length()).map { i ->
             val o = arr.getJSONObject(i)
-            PairedPc(o.getString("id"), o.getString("name"), o.getString("key"), o.optString("base", DEFAULT_SIGNAL_BASE), o.optLong("used"), o.optLong("live"))
+            PairedPc(
+                o.getString("id"), o.getString("name"), o.getString("key"), o.optString("base", DEFAULT_SIGNAL_BASE), o.optLong("used"), o.optLong("live"),
+                WakeOnLan.cleanMac(o.optString("mac", "")), WakeOnLan.cleanBroadcast(o.optString("bcast", "")),
+            )
         }.sortedByDescending { it.lastUsed }
     } catch (_: Exception) {
         emptyList()
@@ -76,7 +91,10 @@ class PairingStore(context: Context) {
     private fun save(list: List<PairedPc>) {
         val arr = JSONArray()
         list.forEach {
-            arr.put(JSONObject().put("id", it.id).put("name", it.name).put("key", it.key).put("base", it.signalBase).put("used", it.lastUsed).put("live", it.lastLive))
+            val o = JSONObject().put("id", it.id).put("name", it.name).put("key", it.key).put("base", it.signalBase).put("used", it.lastUsed).put("live", it.lastLive)
+            it.mac?.let { m -> o.put("mac", m) }
+            it.broadcast?.let { b -> o.put("bcast", b) }
+            arr.put(o)
         }
         prefs.edit().putString("pcs", arr.toString()).apply()
     }
@@ -85,7 +103,12 @@ class PairingStore(context: Context) {
     fun add(info: PairingInfo): PairedPc {
         val key = info.keyText
         val existing = load()
-        val pc = PairedPc(key.take(8), info.hostName, key, info.signalBase, System.currentTimeMillis())
+        // a link without the Wake-on-LAN fields must not erase what an earlier pairing of the same PC shared
+        val old = existing.firstOrNull { it.key == key }
+        val pc = PairedPc(
+            key.take(8), info.hostName, key, info.signalBase, System.currentTimeMillis(),
+            mac = info.mac ?: old?.mac, broadcast = info.broadcast ?: old?.broadcast,
+        )
         save(existing.filterNot { it.key == key } + pc)
         return pc
     }

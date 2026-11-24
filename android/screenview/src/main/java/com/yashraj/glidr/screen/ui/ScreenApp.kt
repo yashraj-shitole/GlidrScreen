@@ -47,6 +47,7 @@ fun GlidrScreenApp(
     val client by viewModel.client.collectAsState()
     val pairError by viewModel.pairError.collectAsState()
     val update by viewModel.update.collectAsState()
+    val wakeNote by viewModel.wakeNote.collectAsState()
     val context = LocalContext.current
 
     LaunchedEffect(updates) { updates?.let(viewModel::configureUpdates) }
@@ -79,6 +80,8 @@ fun GlidrScreenApp(
                     onPair = viewModel::pair,
                     onClearError = viewModel::clearPairError,
                     onConnect = viewModel::connect,
+                    onWake = viewModel::wake,
+                    wakeNote = wakeNote,
                     onForget = viewModel::forget,
                     onRename = viewModel::rename,
                     onClose = onClose,
