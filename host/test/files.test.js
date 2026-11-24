@@ -291,6 +291,21 @@ const offer = (o = {}) => ({ t: 'file-offer', id: 'a1b2c3d4', name: 'photo.jpg',
   // logs never carry names or hashes
   assert.ok(logs.every((l) => !/photo|Pic|big|NUL|[0-9a-f]{40}/i.test(l)), logs.join('\n'));
 
+  // stale temp fragments are cleaned, real files and fresh fragments are not
+  {
+    const { cleanStaleParts, PART_SUFFIX } = require('../src/files');
+    const d = path.join(root, 'clean');
+    fs.mkdirSync(d, { recursive: true });
+    const old = path.join(d, 'old' + PART_SUFFIX), fresh = path.join(d, 'fresh' + PART_SUFFIX), keep = path.join(d, 'keep.txt');
+    for (const p of [old, fresh, keep]) fs.writeFileSync(p, 'x');
+    const longAgo = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    fs.utimesSync(old, longAgo, longAgo);
+    fs.utimesSync(keep, longAgo, longAgo); // an old normal file must survive
+    assert.strictEqual(await cleanStaleParts(d), 1);
+    assert.ok(!fs.existsSync(old) && fs.existsSync(fresh) && fs.existsSync(keep));
+    assert.strictEqual(await cleanStaleParts(path.join(root, 'does-not-exist')), 0);
+  }
+
   fs.rmSync(root, { recursive: true, force: true });
   console.log('ok files');
 })().catch((e) => { console.error(e); process.exit(1); });

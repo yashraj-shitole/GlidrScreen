@@ -5,7 +5,7 @@ const displays = require('./displays');
 const media = require('./media');
 const { ClipboardSync, CursorStream } = require('./sync');
 const permissions = require('./permissions');
-const { FileReceiver } = require('./files');
+const { FileReceiver, cleanStaleParts } = require('./files');
 const Windows = require('./windows');
 const path = require('path');
 
@@ -67,6 +67,7 @@ class HostCore extends EventEmitter {
 
   start() {
     this.sig.setSlots(this.store.get('slots'));
+    cleanStaleParts(this.filesDir()).catch(() => {}); // leftovers of a transfer that was cut off by a crash
     if (this.store.get('sharing')) this.sig.start(); else this.sig.stop();
     this.#changed();
   }

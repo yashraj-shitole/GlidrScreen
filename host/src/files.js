@@ -111,6 +111,28 @@ async function reserveName(dir, name, fsp = fs.promises) {
 }
 
 /**
+ * Deletes leftover half-received files (name + PART_SUFFIX) older than [maxAgeMs] in [dir], e.g. after a crash or a
+ * power cut mid-transfer. Only files with the temp suffix are touched, and never anything outside [dir]. Returns how
+ * many were removed; every error is swallowed (a missing folder simply means there is nothing to clean).
+ */
+async function cleanStaleParts(dir, { fsp = fs.promises, now = Date.now(), maxAgeMs = 24 * 3600 * 1000 } = {}) {
+  let removed = 0;
+  let names;
+  try { names = await fsp.readdir(dir); } catch { return 0; }
+  for (const n of names) {
+    if (!n.endsWith(PART_SUFFIX)) continue;
+    const file = path.join(dir, n);
+    try {
+      const st = await fsp.stat(file);
+      if (!st.isFile() || now - st.mtimeMs < maxAgeMs) continue;
+      await fsp.unlink(file);
+      removed++;
+    } catch { /* gone already, or in use: leave it */ }
+  }
+  return removed;
+}
+
+/**
  * One incoming transfer at a time. The host feeds it the phone's offer and the `files` channel frames; it reports
  * through the callbacks and never throws into the caller.
  */
@@ -269,5 +291,5 @@ class FileReceiver {
 }
 
 module.exports = {
-  MAX_BYTES, MAX_NAME, MAX_CHUNK, REJECT, PART_SUFFIX, sanitizeName, uniqueName, rejectReason, reserveName, FileReceiver,
+  MAX_BYTES, MAX_NAME, MAX_CHUNK, REJECT, PART_SUFFIX, sanitizeName, uniqueName, rejectReason, reserveName, cleanStaleParts, FileReceiver,
 };

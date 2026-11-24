@@ -59,6 +59,7 @@ fun GlidrScreenApp(
     val pairError by viewModel.pairError.collectAsState()
     val update by viewModel.update.collectAsState()
     val wakeNote by viewModel.wakeNote.collectAsState()
+    val presence by viewModel.presence.collectAsState()
     val context = LocalContext.current
     val locked by viewModel.lock.locked.collectAsState()
 
@@ -122,6 +123,8 @@ fun GlidrScreenApp(
                     onClearError = viewModel::clearPairError,
                     onConnect = viewModel::connect,
                     onWake = viewModel::wake,
+                    presence = presence,
+                    onRefreshPresence = viewModel::refreshPresence,
                     wakeNote = wakeNote,
                     onForget = viewModel::forget,
                     onRename = viewModel::rename,
