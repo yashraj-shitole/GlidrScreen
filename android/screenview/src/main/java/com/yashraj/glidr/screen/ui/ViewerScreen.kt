@@ -34,6 +34,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -97,7 +99,8 @@ fun ViewerScreen(
                         sortedMonitors.forEachIndexed { i, m ->
                             val on = m.id == active
                             Box(
-                                Modifier.size(44.dp).clip(CircleShape).background(if (on) c.accent else Color80).clickable { client.switchMonitor(m.id); haptic(false) },
+                                Modifier.size(44.dp).clip(CircleShape).background(if (on) c.accent else Color80).clickable { client.switchMonitor(m.id); haptic(false) }
+                                    .semantics { contentDescription = "Display ${i + 1}" },
                                 contentAlignment = Alignment.Center,
                             ) { Label("${i + 1}", color = if (on) c.ink else c.text) }
                         }
@@ -105,7 +108,7 @@ fun ViewerScreen(
                 }
                 Row(Modifier.align(Alignment.TopEnd).padding(Space.md), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     if (!control) Tag("View only")
-                    if (zoom.zoomed) Box(Modifier.size(44.dp).clip(CircleShape).background(Color80).clickable { zoom.reset() }, contentAlignment = Alignment.Center) { Icon(Ico.Reset, c.text) }
+                    if (zoom.zoomed) Box(Modifier.size(44.dp).clip(CircleShape).background(Color80).clickable { zoom.reset() }.semantics { contentDescription = "Reset zoom" }, contentAlignment = Alignment.Center) { Icon(Ico.Reset, c.text) }
                 }
                 ViewerVideoOverlays(client, zoom, extras) // HOOK 2/3
                 if (switching) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("Switching display...") }
@@ -147,11 +150,26 @@ fun ViewerScreen(
     // an attached keyboard and mouse drive the PC while the session is live and no sheet is open
     Box(Modifier.fillMaxSize().background(c.bg).hardwareInput(client, live && overlay == Overlay.None, prefs, hostWidth)) {
         if (landscape) {
-            Row(Modifier.fillMaxSize().navigationBarsPadding()) {
-                video(Modifier.weight(1f).fillMaxHeight())
-                Column(Modifier.width(304.dp).fillMaxHeight().statusBarsPadding().padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.md)) {
-                    TopBar(hostName, state, stats, rtt, prefs.showStats, onExit) { overlay = Overlay.Settings }
-                    if (live) controls(Modifier.weight(1f))
+            // Full-width picture; the controls float on the thumb side and fold away to a handle, so the PC gets the whole screen.
+            Box(Modifier.fillMaxSize()) {
+                video(Modifier.fillMaxSize())
+                val side = if (prefs.leftHanded) Alignment.CenterStart else Alignment.CenterEnd
+                if (live && prefs.panelCollapsed) {
+                    Box(Modifier.align(side).navigationBarsPadding().padding(Space.md)) {
+                        RoundIconButton(Ico.Pad, "Show controls", { onPrefs { it.copy(panelCollapsed = false) } })
+                    }
+                } else {
+                    Column(
+                        Modifier.align(side).width(304.dp).fillMaxHeight().statusBarsPadding().navigationBarsPadding().padding(Space.sm)
+                            .clip(RoundedCornerShape(Radius.card)).background(c.s1.copy(alpha = 0.94f)).padding(Space.md),
+                        verticalArrangement = Arrangement.spacedBy(Space.md),
+                    ) {
+                        TopBar(hostName, state, stats, rtt, prefs.showStats, onExit) { overlay = Overlay.Settings }
+                        if (live) {
+                            controls(Modifier.weight(1f))
+                            Pill("Hide controls", { onPrefs { it.copy(panelCollapsed = true) } }, Modifier.fillMaxWidth())
+                        }
+                    }
                 }
             }
         } else {
