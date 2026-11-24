@@ -1,5 +1,7 @@
 'use strict';
-const { screen, desktopCapturer } = require('electron');
+const electron = require('electron');
+const { screen, desktopCapturer } = electron;
+const Windows = require('./windows');
 
 /** All monitors in left-to-right, top-to-bottom order, in physical pixels. */
 function list() {
@@ -45,4 +47,43 @@ async function thumbnails() {
   }).filter(Boolean);
 }
 
-module.exports = { list, byId, sourceIdFor, thumbnails };
+// ---------------------------------------------------------------- application windows (see windows.js)
+
+async function windowSources(thumb) {
+  return desktopCapturer.getSources({
+    types: ['window'],
+    thumbnailSize: thumb || { width: 1, height: 1 },
+    fetchWindowIcons: false,
+  });
+}
+
+/** Source ids ("window:<hwnd>:0") of this app's own windows, so they are never offered. Best effort. */
+function ownWindowIds() {
+  const ids = new Set();
+  try {
+    for (const w of electron.BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) ids.add(w.getMediaSourceId());
+    }
+  } catch { /* not available (tests): the title check in windows.js still applies */ }
+  return ids;
+}
+
+/** Windows worth offering, front to back: [{id, title, w, h}]. `rectOf(hwnd)` is input.windowRect. */
+async function windowList(rectOf) {
+  return Windows.buildList(await windowSources(), { rectOf, ownIds: ownWindowIds() });
+}
+
+/** JPEG previews (max 384x216) of the windows with these ids: [{id, w, h, jpg}]. */
+async function windowThumbnails(ids) {
+  const want = new Set(ids);
+  const srcs = await windowSources({ width: 384, height: 216 });
+  const out = [];
+  for (const s of srcs) {
+    if (!want.has(s.id) || !s.thumbnail || s.thumbnail.isEmpty()) continue;
+    const size = s.thumbnail.getSize();
+    out.push({ id: s.id, w: size.width, h: size.height, jpg: s.thumbnail.toJPEG(55).toString('base64') });
+  }
+  return out;
+}
+
+module.exports = { list, byId, sourceIdFor, thumbnails, windowList, windowThumbnails };

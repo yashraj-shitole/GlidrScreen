@@ -178,7 +178,8 @@ async function hostSwitch(cmd) {
   old.getVideoTracks().forEach((t) => t.stop()); // not getTracks(): that would also stop the audio track
   await applyQuality();
   const st = stream.getVideoTracks()[0].getSettings();
-  emit({ t: 'switched', sid: s.sid, monitorId: cmd.monitorId, w: st.width, h: st.height });
+  // kind / id echo the command so the host can tell a window switch from a monitor switch (window sources have no monitorId)
+  emit({ t: 'switched', sid: s.sid, monitorId: cmd.monitorId, kind: cmd.kind || 'monitor', id: cmd.id, w: st.width, h: st.height });
 }
 
 function hostSend(cmd) {

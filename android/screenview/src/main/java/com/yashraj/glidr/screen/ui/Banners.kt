@@ -78,6 +78,7 @@ fun BoxScope.ViewerVideoOverlays(client: ScreenClient, zoom: VideoViewState, ext
     val audio by client.audioActive.collectAsState()
     val muted by client.audioMuted.collectAsState()
     if (locked) LockedBanner(Modifier.align(Alignment.Center).padding(Space.lg))
+    WindowShareOverlay(client)
     // sits under the base top-right row (View only tag, zoom reset), which is 44 dp tall
     Column(
         Modifier.align(Alignment.TopEnd).padding(top = Space.md + 44.dp + Space.sm, end = Space.md),

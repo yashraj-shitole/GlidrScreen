@@ -16,6 +16,82 @@ data class Monitor(val id: Long, val name: String, val x: Int, val y: Int, val w
     }
 }
 
+/** What the phone is looking at: a whole monitor or one application window. [wire] is the `kind` of `source` / `active`. */
+enum class SourceKind(val wire: String) { Monitor("monitor"), Window("window") }
+
+/**
+ * One application window of the PC that can be shared (`windows` list). [id] is an opaque token from the host and
+ * [title] is untrusted text from another program: show it as plain text only, never use it for anything else.
+ */
+data class PcWindow(val id: String, val title: String, val w: Int, val h: Int) {
+    companion object {
+        const val MAX_WINDOWS = 30
+        const val MAX_TITLE = 80
+        private const val MAX_ID = 200
+
+        /** Tolerant: entries without a text `id` are dropped, titles lose control characters and are cut to [MAX_TITLE] characters. */
+        fun parseAll(arr: JSONArray?): List<PcWindow> {
+            if (arr == null) return emptyList()
+            val out = ArrayList<PcWindow>()
+            for (i in 0 until arr.length()) {
+                if (out.size >= MAX_WINDOWS) break
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.opt("id") as? String ?: continue
+                if (id.isEmpty() || id.length > MAX_ID) continue
+                out += PcWindow(id, cleanTitle(o.opt("title") as? String), o.optInt("w"), o.optInt("h"))
+            }
+            return out
+        }
+
+        /** Control characters become spaces, the text is trimmed and cut to [MAX_TITLE] code points (never inside an emoji). */
+        fun cleanTitle(raw: String?): String {
+            if (raw == null) return ""
+            val t = raw.replace(Regex("[\\p{Cc}\\u200e\\u200f\\u202a-\\u202e\\u2066-\\u2069]+"), " ").trim()
+            return if (t.codePointCount(0, t.length) <= MAX_TITLE) t else t.substring(0, t.offsetByCodePoints(0, MAX_TITLE)).trimEnd()
+        }
+    }
+}
+
+/** A `wthumb` preview of one window: [jpg] is base64. Oversized or malformed ones give null. */
+data class WindowThumb(val id: String, val jpg: String) {
+    companion object {
+        private const val MAX_JPG_CHARS = 300_000
+
+        fun parse(m: JSONObject): WindowThumb? {
+            val id = m.opt("id") as? String ?: return null
+            val jpg = m.opt("jpg") as? String ?: return null
+            return if (id.isEmpty() || jpg.isEmpty() || jpg.length > MAX_JPG_CHARS) null else WindowThumb(id, jpg)
+        }
+    }
+}
+
+/** The host's `active` message: the shared source is now a monitor (older hosts, no `kind`) or a window. */
+sealed interface ActiveSource {
+    data class Display(val id: Long, val w: Int, val h: Int) : ActiveSource
+    data class Window(val id: String, val title: String, val w: Int, val h: Int) : ActiveSource
+
+    companion object {
+        fun parse(m: JSONObject): ActiveSource? = when (m.optString("kind", "monitor")) {
+            "window" -> {
+                val id = m.opt("id") as? String
+                if (id.isNullOrEmpty()) null else Window(id, PcWindow.cleanTitle(m.opt("title") as? String), m.optInt("w"), m.optInt("h"))
+            }
+            else -> Display(m.optLong("id"), m.optInt("w"), m.optInt("h"))
+        }
+    }
+}
+
+/** The host could not share the requested window (`source-error`). */
+data class SourceError(val id: String, val reason: String) {
+    /** Text for the person looking at the phone. */
+    val message: String get() = if (reason == "gone") "That window is gone" else "Could not share that window"
+
+    companion object {
+        fun parse(m: JSONObject): SourceError? =
+            if (m.optString("t") == "source-error") SourceError(m.optString("id"), m.optString("reason", "gone")) else null
+    }
+}
+
 enum class Quality(val wire: String, val label: String) {
     Auto("auto", "Auto"), Low("low", "540p"), Balanced("balanced", "720p"), High("high", "1440p");
 
@@ -45,6 +121,15 @@ object Msg {
     fun text(s: String) = JSONObject().put("t", "text").put("s", s)
     fun monitor(id: Long) = JSONObject().put("t", "monitor").put("id", id)
     fun thumbs(on: Boolean) = JSONObject().put("t", "thumbs").put("on", on)
+
+    /** Start or stop the list (and previews) of the PC's application windows. */
+    fun windows(on: Boolean) = JSONObject().put("t", "windows").put("on", on)
+
+    /**
+     * Share [id]: a window id from the `windows` list for [SourceKind.Window], or a monitor id (as text) for
+     * [SourceKind.Monitor], which the host treats exactly like `monitor`.
+     */
+    fun source(kind: SourceKind, id: String) = JSONObject().put("t", "source").put("kind", kind.wire).put("id", id)
 
     /**
      * [fps], [saver] and [mode] are optional on the wire: omitted when null so an older host sees exactly the old

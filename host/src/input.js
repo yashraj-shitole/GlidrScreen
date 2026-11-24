@@ -16,10 +16,16 @@ const KEYBDINPUT = koffi.struct('KEYBDINPUT', {
 const INPUT_U = koffi.union('INPUT_U', { mi: MOUSEINPUT, ki: KEYBDINPUT });
 const INPUT = koffi.struct('INPUT', { type: 'uint32', u: INPUT_U });
 const INPUT_SIZE = koffi.sizeof(INPUT);
+const RECT = koffi.struct('RECT', { left: 'long', top: 'long', right: 'long', bottom: 'long' });
 
 const SendInput = user32.func('uint32 __stdcall SendInput(uint32 cInputs, INPUT *pInputs, int cbSize)');
 const GetCursorPos = user32.func('bool __stdcall GetCursorPos(_Out_ POINT *p)');
 const GetSystemMetrics = user32.func('int __stdcall GetSystemMetrics(int n)');
+// Window sharing: the HWND is passed as a pointer-sized integer (a Number; desktopCapturer ids carry it in decimal).
+const IsWindow = user32.func('bool __stdcall IsWindow(uintptr_t hwnd)');
+const IsIconic = user32.func('bool __stdcall IsIconic(uintptr_t hwnd)');
+const GetWindowRect = user32.func('bool __stdcall GetWindowRect(uintptr_t hwnd, _Out_ RECT *r)');
+const SetForegroundWindow = user32.func('bool __stdcall SetForegroundWindow(uintptr_t hwnd)');
 
 const MOUSEEVENTF = {
   MOVE: 0x0001, LEFTDOWN: 0x0002, LEFTUP: 0x0004, RIGHTDOWN: 0x0008, RIGHTUP: 0x0010,
@@ -187,4 +193,36 @@ class InputInjector {
   }
 }
 
-module.exports = { InputInjector, vkFor };
+// DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS) gives the visible frame; GetWindowRect also counts the invisible
+// resize border Windows 10/11 adds (about 7 px on three sides), which the capture does not contain.
+let dwmBounds; // undefined: not tried yet, null: not available
+function extendedFrame(hwnd) {
+  if (dwmBounds === undefined) {
+    try { dwmBounds = koffi.load('dwmapi.dll').func('int __stdcall DwmGetWindowAttribute(uintptr_t hwnd, uint32 attr, _Out_ RECT *r, uint32 cb)'); } catch { dwmBounds = null; }
+  }
+  if (!dwmBounds) return null;
+  const r = {};
+  try { if (dwmBounds(hwnd, 9, r, koffi.sizeof(RECT)) !== 0) return null; } catch { return null; }
+  return r.right > r.left && r.bottom > r.top ? r : null;
+}
+
+/**
+ * Where the window with this HWND is on the virtual desktop, in physical pixels: {x, y, w, h, iconic}.
+ * null when the handle is not a window (any more). A minimised window gives {iconic: true} (its rectangle is a
+ * parking spot far off screen and means nothing).
+ */
+function windowRect(hwnd) {
+  if (!Number.isSafeInteger(hwnd) || hwnd <= 0 || !IsWindow(hwnd)) return null;
+  if (IsIconic(hwnd)) return { x: 0, y: 0, w: 0, h: 0, iconic: true };
+  const r = {};
+  if (!GetWindowRect(hwnd, r)) return null;
+  const f = extendedFrame(hwnd) || r;
+  return { x: f.left, y: f.top, w: f.right - f.left, h: f.bottom - f.top, iconic: false };
+}
+
+/** Best effort: bring the shared window to the front so the pointer lands on it, not on a window covering it. */
+function focusWindow(hwnd) {
+  try { return !!SetForegroundWindow(hwnd); } catch { return false; }
+}
+
+module.exports = { InputInjector, vkFor, windowRect, focusWindow };

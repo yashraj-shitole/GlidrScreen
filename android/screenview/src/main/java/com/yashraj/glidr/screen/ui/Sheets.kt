@@ -1,5 +1,6 @@
 package com.yashraj.glidr.screen.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,58 +61,141 @@ import com.yashraj.glidr.screen.input.InputProfile
 import com.yashraj.glidr.screen.input.matchingProfile
 import com.yashraj.glidr.screen.input.withProfile
 import com.yashraj.glidr.screen.net.Monitor
+import com.yashraj.glidr.screen.net.PcWindow
 import com.yashraj.glidr.screen.net.Quality
 import com.yashraj.glidr.screen.net.ScreenClient
+import kotlinx.coroutines.delay
 import kotlin.math.min
 
 // ------------------------------------------------------------------------------------------------ displays
 
-/** Layout map of every PC monitor with live previews; tap one to view it. */
+/**
+ * What to share from the PC: "Displays" (layout map of every monitor with live previews) or "Windows" (one application
+ * window). The preview stream of the visible tab is on, the other one is off.
+ */
 @Composable
 fun MonitorSheet(client: ScreenClient, onDismiss: () -> Unit) {
+    var tab by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(client, tab) {
+        if (tab == 0) client.setThumbnails(true) else client.setWindowList(true)
+        onDispose { if (tab == 0) client.setThumbnails(false) else client.setWindowList(false) }
+    }
+
+    Sheet(onDismiss) {
+        Segmented(listOf("Displays", "Windows"), tab, { tab = it })
+        if (tab == 0) DisplaysPane(client, onDismiss) else WindowsPane(client, onDismiss)
+        Pill("Close", onDismiss, Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun DisplaysPane(client: ScreenClient, onDismiss: () -> Unit) {
     val c = Gs.colors
     val monitors by client.monitors.collectAsState()
     val active by client.activeMonitor.collectAsState()
     val thumbs by client.thumbs.collectAsState()
 
-    DisposableEffect(client) {
-        client.setThumbnails(true)
-        onDispose { client.setThumbnails(false) }
-    }
-
-    Sheet(onDismiss) {
-        Label("Displays", style = Gs.type.body)
-        Label("Tap a display to see and control it.", color = c.dim, style = Gs.type.small)
-        if (monitors.isEmpty()) {
-            Label("Waiting for the PC...", color = c.dim)
-        } else {
-            val minX = monitors.minOf { it.x }
-            val minY = monitors.minOf { it.y }
-            val totalW = (monitors.maxOf { it.x + it.w } - minX).toFloat()
-            val totalH = (monitors.maxOf { it.y + it.h } - minY).toFloat()
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                val scale = min(maxWidth.value / totalW, 230f / totalH)
-                Box(Modifier.align(Alignment.Center).size((totalW * scale).dp, (totalH * scale).dp)) {
-                    monitors.forEachIndexed { i, m ->
-                        val on = m.id == active
-                        val shape = RoundedCornerShape(Radius.key)
-                        Box(
-                            Modifier.offset(((m.x - minX) * scale).dp, ((m.y - minY) * scale).dp).size((m.w * scale).dp - 4.dp, (m.h * scale).dp - 4.dp)
-                                .clip(shape).background(c.s2).border(if (on) Space.hair else 1.dp, if (on) c.accent else c.line, shape)
-                                .clickable { client.switchMonitor(m.id); onDismiss() },
-                        ) {
-                            thumbs[m.id]?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
-                            Label(
-                                "${i + 1}  ${m.w}x${m.h}", color = if (on) c.ink else c.text, style = Gs.type.mono,
-                                modifier = Modifier.align(Alignment.BottomStart).padding(Space.sm).clip(RoundedCornerShape(Radius.key))
-                                    .background(if (on) c.accent else Color0).padding(horizontal = Space.sm, vertical = Space.hair),
-                            )
-                        }
+    Label("Displays", style = Gs.type.body)
+    Label("Tap a display to see and control it.", color = c.dim, style = Gs.type.small)
+    if (monitors.isEmpty()) {
+        Label("Waiting for the PC...", color = c.dim)
+    } else {
+        val minX = monitors.minOf { it.x }
+        val minY = monitors.minOf { it.y }
+        val totalW = (monitors.maxOf { it.x + it.w } - minX).toFloat()
+        val totalH = (monitors.maxOf { it.y + it.h } - minY).toFloat()
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val scale = min(maxWidth.value / totalW, 230f / totalH)
+            Box(Modifier.align(Alignment.Center).size((totalW * scale).dp, (totalH * scale).dp)) {
+                monitors.forEachIndexed { i, m ->
+                    val on = m.id == active
+                    val shape = RoundedCornerShape(Radius.key)
+                    Box(
+                        Modifier.offset(((m.x - minX) * scale).dp, ((m.y - minY) * scale).dp).size((m.w * scale).dp - 4.dp, (m.h * scale).dp - 4.dp)
+                            .clip(shape).background(c.s2).border(if (on) Space.hair else 1.dp, if (on) c.accent else c.line, shape)
+                            .clickable { client.switchMonitor(m.id); onDismiss() },
+                    ) {
+                        thumbs[m.id]?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                        Label(
+                            "${i + 1}  ${m.w}x${m.h}", color = if (on) c.ink else c.text, style = Gs.type.mono,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(Space.sm).clip(RoundedCornerShape(Radius.key))
+                                .background(if (on) c.accent else Color0).padding(horizontal = Space.sm, vertical = Space.hair),
+                        )
                     }
                 }
             }
         }
-        Pill("Close", onDismiss, Modifier.fillMaxWidth())
+    }
+}
+
+/**
+ * The PC's application windows as a scrolling list of cards (preview, title, size). A tap asks the PC to share that
+ * window; the sheet stays on "Switching..." until the PC confirms it (then it closes) or says the window is gone.
+ */
+@Composable
+private fun WindowsPane(client: ScreenClient, onDismiss: () -> Unit) {
+    val c = Gs.colors
+    val windows by client.windows.collectAsState()
+    val thumbs by client.windowThumbs.collectAsState()
+    val active by client.activeWindow.collectAsState()
+    val switching by client.switching.collectAsState()
+    var pending by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var waited by remember { mutableStateOf(false) }
+
+    LaunchedEffect(client) { client.sourceMessage.collect { error = it; pending = null } }
+    LaunchedEffect(Unit) { delay(4_000); waited = true }
+    LaunchedEffect(active?.id, pending) { if (pending != null && active?.id == pending) onDismiss() } // confirmed by the PC
+    LaunchedEffect(switching) { if (!switching && pending != null && active?.id != pending) pending = null } // no answer: give up
+
+    Label("Windows", style = Gs.type.body)
+    Label("Tap a window to see and control only that window.", color = c.dim, style = Gs.type.small)
+    error?.let { Label(it, color = c.bad, style = Gs.type.small) }
+    if (windows.isEmpty()) {
+        Label(
+            if (waited) "No windows to share. Open an app on the PC, or update Glidr Screen there." else "Looking for windows...",
+            color = c.dim,
+        )
+    } else {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Space.sm),
+        ) {
+            windows.forEach { w ->
+                WindowCard(w, thumbs[w.id], on = w.id == active?.id, pending = w.id == pending) {
+                    if (pending == null) {
+                        error = null
+                        pending = w.id
+                        client.shareWindow(w.id)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One window: preview, title on one line (untrusted text, plain), size. At least 48 dp tall. */
+@Composable
+private fun WindowCard(w: PcWindow, thumb: Bitmap?, on: Boolean, pending: Boolean, onClick: () -> Unit) {
+    val c = Gs.colors
+    val shape = RoundedCornerShape(Radius.card)
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape).background(c.s2)
+            .border(if (on) Space.hair else 1.dp, if (on) c.accent else c.line, shape)
+            .clickable(role = Role.Button, onClick = onClick).padding(Space.lg),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.md),
+    ) {
+        Box(Modifier.size(96.dp, 54.dp).clip(RoundedCornerShape(Radius.key)).background(c.s3)) {
+            thumb?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+            Label(w.title.ifBlank { "Untitled window" }, maxLines = 1)
+            Label(
+                if (pending) "Switching..." else if (on) "Sharing now  ${w.w}x${w.h}" else "${w.w}x${w.h}",
+                color = if (pending) c.accentText else c.dim, style = Gs.type.mono, maxLines = 1,
+            )
+        }
     }
 }
 
