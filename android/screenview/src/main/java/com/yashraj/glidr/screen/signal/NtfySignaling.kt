@@ -18,6 +18,9 @@ sealed interface SignalEvent {
     class Message(val json: JSONObject) : SignalEvent
 }
 
+/** An authentic message read back from the topic, with the time the server received it (epoch ms, 0 if unknown). */
+class RecentMessage(val json: JSONObject, val serverTimeMs: Long)
+
 /**
  * Rendezvous over an ntfy topic (https://ntfy.sh, self-hostable). Only a few small sealed messages pass through
  * it per connection and nothing is trusted from it: every message is AES-GCM sealed with the pairing key.
@@ -54,6 +57,37 @@ class NtfySignaling(private val base: String, key: ByteArray) {
             }
         }
         awaitClose { conn.disconnect() }
+    }
+
+    /**
+     * One-shot read of what the server still holds for this topic (`?poll=1&since=[since]`): the authentic messages,
+     * oldest first. Used for the PC's "last seen" markers; throws on a network or HTTP failure.
+     */
+    suspend fun recentMessages(since: String = "12h", timeoutMs: Int = 8_000): List<RecentMessage> = withContext(Dispatchers.IO) {
+        val conn = URL("$root/${slot.topic}/json?poll=1&since=$since").openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            check(conn.responseCode in 200..299) { "signaling HTTP ${conn.responseCode}" }
+            val out = ArrayList<RecentMessage>()
+            conn.inputStream.bufferedReader().useLines { lines ->
+                for (line in lines.take(MAX_POLL_LINES)) {
+                    if (line.isBlank()) continue
+                    val ev = try { JSONObject(line) } catch (_: Exception) { continue }
+                    if (ev.optString("event") != "message") continue
+                    val plain = SignalCrypto.open(slot.encKey, ev.optString("message")) ?: continue
+                    val obj = try { JSONObject(plain) } catch (_: Exception) { continue }
+                    out.add(RecentMessage(obj, ev.optLong("time") * 1000))
+                }
+            }
+            out
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    private companion object {
+        const val MAX_POLL_LINES = 2000
     }
 
     suspend fun publish(obj: JSONObject) = withContext(Dispatchers.IO) {

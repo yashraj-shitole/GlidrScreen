@@ -8,17 +8,25 @@ import com.yashraj.glidr.screen.net.ScreenClient
 import com.yashraj.glidr.screen.signal.PairedPc
 import com.yashraj.glidr.screen.signal.PairingParser
 import com.yashraj.glidr.screen.signal.PairingStore
+import com.yashraj.glidr.screen.signal.PcPresence
+import com.yashraj.glidr.screen.signal.PresenceChecker
 import com.yashraj.glidr.screen.signal.UNNAMED_PC
 import com.yashraj.glidr.screen.signal.WakeOnLan
 import com.yashraj.glidr.screen.update.GitHubReleases
 import com.yashraj.glidr.screen.update.UpdateSource
 import com.yashraj.glidr.screen.update.UpdateState
 import com.yashraj.glidr.screen.update.installedFromPlay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class ScreenViewModel(app: Application) : AndroidViewModel(app) {
@@ -59,6 +67,30 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
         val mac = pc.mac ?: return
         _wakeNote.value = "Sending wake signal..."
         viewModelScope.launch { _wakeNote.value = WakeOnLan.resultMessage(WakeOnLan.send(mac, pc.broadcast)) }
+    }
+
+    private val _presence = MutableStateFlow<Map<String, PcPresence?>>(emptyMap())
+    /**
+     * What each PC last said about itself, by PC id. A PC without an entry has not been checked yet (or its check is still
+     * running); an entry with null was checked and nothing was found.
+     */
+    val presence: StateFlow<Map<String, PcPresence?>> = _presence.asStateFlow()
+    private var presenceJob: Job? = null
+
+    /** Looks every paired PC up once (at most [PRESENCE_PARALLEL] at a time, [PRESENCE_TIMEOUT_MS] each). No background polling. */
+    fun refreshPresence() {
+        presenceJob?.cancel()
+        val list = _pcs.value
+        presenceJob = viewModelScope.launch {
+            val gate = Semaphore(PRESENCE_PARALLEL)
+            for (pc in list) launch {
+                val found = gate.withPermit {
+                    withContext(Dispatchers.IO) { withTimeoutOrNull(PRESENCE_TIMEOUT_MS) { PresenceChecker.check(pc) } }
+                }
+                // a failed refresh (offline phone) must not wipe an earlier answer; its age keeps counting up
+                _presence.update { old -> if (found == null && old[pc.id] != null) old else old + (pc.id to found) }
+            }
+        }
     }
 
     private var nameJob: Job? = null
@@ -143,3 +175,7 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
         _client.value?.close()
     }
 }
+
+/** Presence lookups: how many run at once, and how long one may take. */
+private const val PRESENCE_PARALLEL = 4
+private const val PRESENCE_TIMEOUT_MS = 8_000L

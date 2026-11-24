@@ -64,6 +64,47 @@ change). Different slot while a session is live: `busy`.
 
 Non-trickle ICE keeps a connection to **3 rendezvous messages** and the SDP in one frame.
 
+## Presence
+
+When the PC is asleep, switched off or Glidr Screen is closed, a phone can only time out. So the host leaves small
+sealed *last seen* markers on every paired topic, and the phone reads the newest one to say what probably happened.
+
+```
+{"t":"presence","from":"h","ts":<ms epoch>,"state":"online"|"sleep"|"paused"|"quit"}
+```
+
+Sealed like every other message and published with ntfy's `Cache: yes`; a sealed marker is under 200 characters. The
+host publishes to every claimed slot that has a readable key (not to an open pairing, not to a slot that needs
+re-pairing):
+
+| state | when |
+|-------|------|
+| `online` | about 4 s after the app starts, whenever sharing is switched on, every 5 minutes while sharing is on, and shortly (3 s, for the network) after the PC wakes from sleep |
+| `sleep` | the PC is going to sleep (Windows `suspend`; best effort, the request may not leave in time) |
+| `paused` | sharing was paused (also sent at start-up and after waking when sharing is off) |
+| `quit` | the app is closing; the host waits at most 1.5 s for this to be sent |
+
+A phone that is claimed later gets a marker right away. Publishing failures are ignored. The host ignores presence frames
+(its own echo is `from: "h"`, and anything from `"p"` is not a request); a phone never publishes presence.
+
+The phone does a one-shot poll, `GET <base>/<topic>/json?poll=1&since=12h`, opens each `message` with the slot key and
+keeps the newest authentic presence from `h`. With no marker (ntfy keeps messages for about 12 hours on the public
+server, a self-hosted one may differ) the answer is "no sign of the PC". The age is taken from the marker's own `ts`
+(the ntfy `time` is the fallback when `ts` is missing or more than a minute in the future). Suggested wording:
+
+| newest marker | text |
+|---------------|------|
+| `online`, under 7 min old | PC online |
+| `online`, 7 min to 2 h old | Last seen 12 min ago (the heartbeat is 5 min, so older means the app probably stopped) |
+| `online`, over 2 h old | Last seen 3 h ago (same wording, the unit just grows) |
+| `sleep` | PC went to sleep 12 min ago |
+| `paused` | Sharing paused on the PC |
+| `quit` | Glidr Screen was closed 3 h ago |
+| none | No sign of the PC in the last 12 hours |
+
+Clocks of the PC and the phone are assumed to be roughly in step. This is a hint, not a guarantee: a PC that lost power
+or network leaves its last `online` marker and nothing else.
+
 ## Per-phone permissions and guest links
 
 These are settings of the PC's slot for a phone; the protocol only shows their effect. All are optional, and a slot

@@ -32,6 +32,7 @@ const links = require('./links');
 const permissions = require('./permissions');
 const wol = require('./wol');
 const diagnose = require('./diagnose');
+const { Presence } = require('./presence');
 
 let store, signaling, input, core, engineWin, uiWin, tray, updates, pauseTimer, keepAwake;
 let notifiedVersion = null;
@@ -299,6 +300,14 @@ app.whenReady().then(async () => {
   keepAwake.sync();
   // Wake from sleep and unlock: reconnect signaling at once; lock: tell the core, optionally end the session.
   wirePower({ monitor: powerMonitor, signaling, core, store, keepAwake, pauseTimer });
+  // Presence ("PC last seen", see presence.js): sealed online / sleep / paused / quit markers for the phones' topics.
+  const presence = new Presence({ signaling, store, log: (m) => core.emit('log', m) }).attach({ core, monitor: powerMonitor });
+  let presenceQuit = false; // hold the quit for up to ~1.5 s so the 'quit' marker can leave, then quit again
+  app.on('before-quit', (e) => {
+    if (presenceQuit) return;
+    presenceQuit = true; e.preventDefault();
+    presence.quit().finally(() => app.quit());
+  });
   if (app.isPackaged) { try { app.setAsDefaultProtocolClient(links.SCHEME); } catch { /* registry not writable: links just stay off */ } }
   updates.start();
   updateTray();
