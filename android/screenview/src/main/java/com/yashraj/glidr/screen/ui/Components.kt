@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -77,7 +78,7 @@ fun PressBox(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     description: String? = null,
-    shape: Shape = RoundedCornerShape(18.dp),
+    shape: Shape = RoundedCornerShape(Radius.control),
     background: Color = Gs.colors.s2,
     border: Boolean = true,
     content: @Composable () -> Unit,
@@ -100,7 +101,7 @@ fun PressBox(
 enum class Ico { Back, Close, Plus, Qr, Display, Swap, Keyboard, Settings, Touch, Pad, Trash, Check, Reset, Down, Edit }
 
 @Composable
-fun Icon(kind: Ico, tint: Color, size: Dp = 22.dp) {
+fun Icon(kind: Ico, tint: Color, size: Dp = 24.dp) {
     Canvas(Modifier.size(size)) {
         val w = this.size.width
         val sw = w * 0.085f
@@ -167,9 +168,9 @@ fun Pill(
     val c = Gs.colors
     val filled = primary || danger
     PressBox(
-        { if (enabled) onClick() }, modifier.height(48.dp), text, RoundedCornerShape(16.dp),
+        { if (enabled) onClick() }, modifier.height(48.dp), text, RoundedCornerShape(Radius.chip),
         background = if (danger) c.bad else if (primary) c.accent else c.s2, border = !filled,
-    ) { Label(text, color = if (filled) c.ink else c.text, modifier = Modifier.padding(horizontal = 18.dp)) }
+    ) { Label(text, color = if (filled) c.ink else c.text, modifier = Modifier.padding(horizontal = Space.inset)) }
 }
 
 /** Indeterminate progress ring. Static (no motion) when Reduce motion is on. */
@@ -195,10 +196,10 @@ fun Spinner(color: Color, size: Dp = 32.dp) {
 @Composable
 fun StepDots(labels: List<String>, done: Int) {
     val c = Gs.colors
-    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.inset)) {
         labels.forEachIndexed { i, label ->
             val on = i < done
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xs)) {
                 Box(Modifier.size(8.dp).clip(CircleShape).background(if (on) c.accent else c.s3))
                 Label(label, color = if (on) c.text else c.dim, style = Gs.type.small)
             }
@@ -209,12 +210,12 @@ fun StepDots(labels: List<String>, done: Int) {
 @Composable
 fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val c = Gs.colors
-    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.s2).padding(3.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.chip)).background(c.s2).padding(Space.xs), horizontalArrangement = Arrangement.spacedBy(Space.hair)) {
         options.forEachIndexed { i, label ->
             val on = i == selected
             val bg by animateColorAsState(if (on) c.accent else Color.Transparent, motionSpec(), label = "seg")
             Box(
-                Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(11.dp)).background(bg).clickable(role = Role.Tab) { onSelect(i) },
+                Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(Radius.key)).background(bg).clickable(role = Role.Tab) { onSelect(i) },
                 contentAlignment = Alignment.Center,
             ) { Label(label, color = if (on) c.ink else c.dim) }
         }
@@ -225,13 +226,13 @@ fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit, mod
 fun Toggle(on: Boolean, onChange: (Boolean) -> Unit, description: String) {
     val c = Gs.colors
     val bg by animateColorAsState(if (on) c.accent else c.s3, motionSpec(), label = "sw")
-    val x by animateFloatAsState(if (on) 20f else 0f, motionSpec(), label = "swx")
+    val x by animateFloatAsState(if (on) 24f else 0f, motionSpec(), label = "swx")
     Box(
-        Modifier.size(width = 52.dp, height = 48.dp).clickable(role = Role.Switch) { onChange(!on) }.semantics { contentDescription = description },
+        Modifier.size(width = 56.dp, height = 48.dp).clickable(role = Role.Switch) { onChange(!on) }.semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(52.dp, 32.dp).clip(CircleShape).background(bg)) {
-            Box(Modifier.padding(start = (3 + x).dp, top = 3.dp).size(26.dp).clip(CircleShape).background(if (on) c.ink else c.dim))
+        Box(Modifier.size(56.dp, 32.dp).clip(CircleShape).background(bg)) {
+            Box(Modifier.padding(start = (4 + x).dp, top = Space.xs).size(24.dp).clip(CircleShape).background(if (on) c.ink else c.dim))
         }
     }
 }
@@ -257,7 +258,7 @@ fun Slider(value: Float, range: ClosedFloatingPointRange<Float>, onChange: (Floa
         // a handle, so it is clear where the value is and what to drag
         Box(
             Modifier.offset(x = (maxWidth - thumb) * frac).size(thumb).clip(CircleShape).background(c.text)
-                .border(3.dp, c.accent, CircleShape),
+                .border(Space.hair, c.accent, CircleShape),
         )
     }
 }
@@ -268,11 +269,11 @@ fun Sheet(onDismiss: () -> Unit, scrim: Color = Color(0x99000000), content: @Com
     val c = Gs.colors
     Box(Modifier.fillMaxSize().background(scrim).pointerInput(Unit) { detectTapGestures { onDismiss() } }, contentAlignment = Alignment.BottomCenter) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)).background(c.s1)
-                .border(1.dp, c.line, RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+            Modifier.widthIn(max = MAX_SHEET_WIDTH).fillMaxWidth().clip(RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet)).background(c.s1)
+                .border(1.dp, c.line, RoundedCornerShape(topStart = Radius.sheet, topEnd = Radius.sheet))
                 .pointerInput(Unit) { detectTapGestures { } }
-                .navigationBarsPadding().padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .navigationBarsPadding().padding(horizontal = Space.inset, vertical = Space.lg),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             Box(Modifier.align(Alignment.CenterHorizontally).size(36.dp, 4.dp).clip(CircleShape).background(c.s3))
             content()

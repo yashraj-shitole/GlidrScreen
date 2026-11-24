@@ -98,7 +98,7 @@ fun GlidrScreenApp(
                     if (info.signalBase != DEFAULT_SIGNAL_BASE) {
                         Label("Signaling server: ${info.signalBase}", color = c.dim, style = Gs.type.small, maxLines = 2)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                         Pill("Cancel", { linkToConfirm = null }, Modifier.weight(1f))
                         Pill("Pair", {
                             linkToConfirm = null

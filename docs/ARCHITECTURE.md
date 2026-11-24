@@ -52,6 +52,22 @@ switches the video track with `replaceTrack` (no renegotiation, about a second).
 **Library plus app.** `:screenview` exposes one composable, `GlidrScreenApp`, and has no dependency on the app
 module, so the Glidr app can host it as a container later (see below).
 
+## Layout system
+
+The phone UI uses the same spacing and radius tokens as the Glidr app (`Space` and `Radius` in
+`screenview/.../ui/Theme.kt`), so the two look the same if `:screenview` is embedded in Glidr. Sources: Material
+Design layout metrics (components on an 8 dp grid, type and icons on a 4 dp sub-grid, 16 dp side margins, 48 dp touch
+targets with at least 8 dp between neighbours) and Apple's HIG (44 pt minimum hit area).
+
+* Screen gutter 16. Items inside a group 8. A label above its control, or stacked components (trackpad, mouse buttons,
+  tool row) 12. Sections 24.
+* Card padding 16 in lists, 20 in dialogs and sheets; pill text padding 20.
+* Touch targets 48. Key chips and segmented options are 44 (the HIG minimum) so a row of them fits a phone.
+* Radii come from one scale: 12 key, 16 chip, 20 control, 24 card, 28 sheet, 32 pad. Nested shapes follow
+  `inner = outer - inset` (segmented control 16 - 4 = 12).
+* Bottom sheets stop at 560 dp wide so landscape and tablets keep a readable column.
+* Use `Space.*` and `Radius.*`, not dp literals. The only literals left are sizes, hairlines (1, 2) and drawn graphics.
+
 ## Embedding in the Glidr app (future scope)
 
 1. Add `include(":screenview")` pointing at this module (git submodule, composite build `includeBuild`, or publish an AAR).

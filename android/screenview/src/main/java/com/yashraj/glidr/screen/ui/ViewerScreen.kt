@@ -90,20 +90,20 @@ fun ViewerScreen(
         Box(mod.background(c.bg)) {
             RemoteVideo(track, client, zoom, prefs.directTouch, videoSize, haptic, Modifier.fillMaxSize())
             if (live) {
-                Row(Modifier.align(Alignment.TopStart).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.align(Alignment.TopStart).padding(Space.md), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     if (sortedMonitors.size > 1) {
                         sortedMonitors.forEachIndexed { i, m ->
                             val on = m.id == active
                             Box(
-                                Modifier.size(38.dp).clip(CircleShape).background(if (on) c.accent else Color80).clickable { client.switchMonitor(m.id); haptic(false) },
+                                Modifier.size(44.dp).clip(CircleShape).background(if (on) c.accent else Color80).clickable { client.switchMonitor(m.id); haptic(false) },
                                 contentAlignment = Alignment.Center,
                             ) { Label("${i + 1}", color = if (on) c.ink else c.text) }
                         }
                     }
                 }
-                Row(Modifier.align(Alignment.TopEnd).padding(10.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.align(Alignment.TopEnd).padding(Space.md), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     if (!control) Tag("View only")
-                    if (zoom.zoomed) Box(Modifier.size(38.dp).clip(CircleShape).background(Color80).clickable { zoom.reset() }, contentAlignment = Alignment.Center) { Icon(Ico.Reset, c.text, 18.dp) }
+                    if (zoom.zoomed) Box(Modifier.size(44.dp).clip(CircleShape).background(Color80).clickable { zoom.reset() }, contentAlignment = Alignment.Center) { Icon(Ico.Reset, c.text) }
                 }
                 if (switching) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("Switching display...") }
             }
@@ -112,10 +112,10 @@ fun ViewerScreen(
     }
 
     val controls: @Composable (Modifier) -> Unit = { mod ->
-        Column(mod, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(mod, verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Trackpad(client, prefs, hostWidth, haptic, Modifier.weight(1f).fillMaxWidth())
             MouseButtons(client, haptic)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                 ToolButton(Ico.Display, "Displays", Modifier.weight(1f), enabled = monitors.isNotEmpty()) { overlay = Overlay.Displays }
                 ToolButton(Ico.Swap, "Next display", Modifier.weight(1f), enabled = sortedMonitors.size > 1) {
                     val i = sortedMonitors.indexOfFirst { it.id == active }
@@ -131,16 +131,16 @@ fun ViewerScreen(
         if (landscape) {
             Row(Modifier.fillMaxSize().navigationBarsPadding()) {
                 video(Modifier.weight(1f).fillMaxHeight())
-                Column(Modifier.width(300.dp).fillMaxHeight().statusBarsPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.width(304.dp).fillMaxHeight().statusBarsPadding().padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.md)) {
                     TopBar(hostName, state, stats, rtt, prefs.showStats, onExit) { overlay = Overlay.Settings }
                     if (live) controls(Modifier.weight(1f))
                 }
             }
         } else {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                TopBar(hostName, state, stats, rtt, prefs.showStats, onExit, Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) { overlay = Overlay.Settings }
+                TopBar(hostName, state, stats, rtt, prefs.showStats, onExit, Modifier.padding(horizontal = Space.md, vertical = Space.sm)) { overlay = Overlay.Settings }
                 video(Modifier.fillMaxWidth().weight(1.15f))
-                if (live) controls(Modifier.fillMaxWidth().weight(1f).padding(12.dp)) else Box(Modifier.weight(1f))
+                if (live) controls(Modifier.fillMaxWidth().weight(1f).padding(Space.md)) else Box(Modifier.weight(1f))
             }
         }
         when (overlay) {
@@ -150,7 +150,7 @@ fun ViewerScreen(
             Overlay.ConfirmExit -> Sheet({ overlay = Overlay.None }) {
                 Label("Disconnect from $hostName?", maxLines = 2, style = Gs.type.body)
                 Label("The session ends and you will need to connect again.", color = c.dim, style = Gs.type.small)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     Pill("Stay", { overlay = Overlay.None }, Modifier.weight(1f), primary = true)
                     Pill("Disconnect", onExit, Modifier.weight(1f))
                 }
@@ -169,8 +169,8 @@ private fun TopBar(
     onExit: () -> Unit, modifier: Modifier = Modifier, onSettings: () -> Unit,
 ) {
     val c = Gs.colors
-    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        RoundIconButton(Ico.Back, "Disconnect", onExit, size = 44.dp)
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+        RoundIconButton(Ico.Back, "Disconnect", onExit)
         Column(Modifier.weight(1f)) {
             Label(name, maxLines = 1)
             val line = when (state) {
@@ -184,7 +184,7 @@ private fun TopBar(
             }
             Label(line, color = if (state is ConnState.Live) c.accentText else c.dim, style = Gs.type.mono, maxLines = 1)
         }
-        RoundIconButton(Ico.Settings, "Settings", onSettings, size = 44.dp)
+        RoundIconButton(Ico.Settings, "Settings", onSettings)
     }
 }
 
@@ -209,7 +209,7 @@ private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, on
     val busy = state is ConnState.Connecting || state is ConnState.Reconnecting
     val center = androidx.compose.ui.text.style.TextAlign.Center
     Box(Modifier.fillMaxSize().background(if (state is ConnState.Failed) c.bg else Color(0xB3000000)), contentAlignment = Alignment.Center) {
-        Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.padding(Space.xl), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.md)) {
             if (busy) Spinner(c.accent)
             if (state is ConnState.Failed) {
                 // a short red headline, then the explanation in a calmer colour
@@ -224,12 +224,12 @@ private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, on
             if (busy && diag.isNotEmpty()) {
                 Label(
                     if (details) "Hide details" else "Details", color = c.dim, style = Gs.type.small,
-                    modifier = Modifier.clickable { details = !details }.padding(horizontal = 12.dp, vertical = 10.dp),
+                    modifier = Modifier.clickable { details = !details }.padding(horizontal = Space.md, vertical = Space.md),
                 )
             }
             if (busy) Pill("Cancel", onExit)
             if (state is ConnState.Failed) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     Pill("Back", onExit)
                     Pill("Try again", onRetry, primary = true)
                 }
@@ -241,7 +241,7 @@ private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, on
 @Composable
 private fun Tag(text: String) {
     val c = Gs.colors
-    Box(Modifier.height(38.dp).clip(RoundedCornerShape(19.dp)).background(Color80).border(1.dp, c.line, RoundedCornerShape(19.dp)).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.height(40.dp).clip(RoundedCornerShape(Radius.control)).background(Color80).border(1.dp, c.line, RoundedCornerShape(Radius.control)).padding(horizontal = Space.lg), contentAlignment = Alignment.Center) {
         Label(text, style = Gs.type.small)
     }
 }
@@ -250,7 +250,7 @@ private fun Tag(text: String) {
 private fun ToolButton(kind: Ico, description: String, modifier: Modifier, active: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
     val c = Gs.colors
     PressBox(
-        { if (enabled) onClick() }, modifier.height(52.dp), description, RoundedCornerShape(16.dp),
+        { if (enabled) onClick() }, modifier.height(48.dp), description, RoundedCornerShape(Radius.chip),
         background = if (active) c.accent else c.s2, border = !active,
     ) { Icon(kind, if (!enabled) c.dim else if (active) c.ink else c.text) }
 }

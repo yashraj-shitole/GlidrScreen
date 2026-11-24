@@ -71,11 +71,11 @@ fun HomeScreen(
     Box(Modifier.fillMaxSize().background(c.bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         LazyColumn(
-            Modifier.weight(1f).padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.weight(1f).padding(horizontal = Space.lg),
+            verticalArrangement = Arrangement.spacedBy(Space.md),
         ) {
             item {
-                Row(Modifier.fillMaxWidth().padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(top = Space.lg), verticalAlignment = Alignment.CenterVertically) {
                     if (onClose != null) {
                         RoundIconButton(Ico.Back, "Back", onClose)
                         Spacer(Modifier.size(12.dp))
@@ -89,10 +89,10 @@ fun HomeScreen(
             (update?.state as? UpdateState.Available)?.let { avail ->
                 item {
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.s1).border(1.dp, c.accent, RoundedCornerShape(22.dp)).padding(14.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.card)).background(c.s1).border(1.dp, c.accent, RoundedCornerShape(Radius.card)).padding(Space.lg),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                        Column(Modifier.weight(1f).padding(end = Space.md)) {
                             Label("Version ${avail.release.version} is available", style = Gs.type.body)
                             Label("You have ${update.currentVersion}. Download and install the new APK.", color = c.dim, style = Gs.type.small)
                         }
@@ -102,7 +102,7 @@ fun HomeScreen(
             }
             if (pcs.isEmpty()) {
                 item {
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(22.dp)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.card)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(Radius.card)).padding(Space.inset), verticalArrangement = Arrangement.spacedBy(Space.md)) {
                         Label("Connect your first PC", style = Gs.type.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold))
                         Step("1", "Run Glidr Screen on your Windows PC.")
                         Step("2", "Find the QR code in its window. If it is not shown, press \"Pair a new phone\".")
@@ -112,22 +112,22 @@ fun HomeScreen(
             } else {
                 items(pcs, key = { it.id }) { pc ->
                     Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(22.dp)).padding(14.dp),
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.card)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(Radius.card)).padding(Space.lg),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(c.s2), contentAlignment = Alignment.Center) { Icon(Ico.Display, c.text) }
-                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                        Box(Modifier.size(48.dp).clip(RoundedCornerShape(Radius.key)).background(c.s2), contentAlignment = Alignment.Center) { Icon(Ico.Display, c.text) }
+                        Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
                             Label(pc.name, maxLines = 1, style = Gs.type.body)
                             Label(TimeText.lastConnected(System.currentTimeMillis(), pc.lastLive), color = c.dim, style = Gs.type.small)
                         }
-                        RoundIconButton(Ico.Edit, "Rename or forget ${pc.name}", { manage = pc }, size = 44.dp)
+                        RoundIconButton(Ico.Edit, "Rename or forget ${pc.name}", { manage = pc })
                         Spacer(Modifier.size(8.dp))
                         Pill("Connect", { onConnect(pc) }, primary = true)
                     }
                 }
             }
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     Pill("Scan QR", {
                         scanError = null
                         scanQr(context, { text -> onPair(text)?.let(onConnect) }, { scanError = it })
@@ -140,7 +140,7 @@ fun HomeScreen(
             item {
                 Label(
                     "Your PC and phone talk directly over an encrypted link. No video passes through any server.",
-                    color = c.dim, style = Gs.type.small, modifier = Modifier.padding(vertical = 8.dp),
+                    color = c.dim, style = Gs.type.small, modifier = Modifier.padding(vertical = Space.sm),
                 )
             }
         }
@@ -155,7 +155,7 @@ fun HomeScreen(
                 is UpdateState.Failed -> "Could not check for updates"
                 UpdateState.Idle -> ""
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = Space.lg, vertical = Space.md), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Label("Version ${update.currentVersion}", color = c.dim, style = Gs.type.small)
                     if (status.isNotEmpty()) Label(status, color = c.dim, style = Gs.type.small)
@@ -183,7 +183,7 @@ fun HomeScreen(
             Sheet({ confirmForget = null }) {
                 Label("Forget ${pc.name}?", style = Gs.type.body)
                 Label("This phone will need to be paired with the PC again.", color = c.dim, style = Gs.type.small)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     // the safe choice is the highlighted one; the action that cannot be undone is red
                     Pill("Cancel", { confirmForget = null }, Modifier.weight(1f), primary = true)
                     Pill("Forget", { onForget(pc); confirmForget = null }, Modifier.weight(1f), danger = true)
@@ -205,9 +205,9 @@ private fun ManageSheet(pc: PairedPc, onSave: (String) -> Unit, onForget: () -> 
             textStyle = Gs.type.body.copy(color = c.text),
             cursorBrush = SolidColor(c.accent),
             singleLine = true,
-            modifier = Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(14.dp)).background(c.s2).padding(14.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(Radius.chip)).background(c.s2).padding(Space.md),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             Pill("Forget PC", onForget, Modifier.weight(1f))
             Pill("Save", { onSave(name) }, Modifier.weight(1f), primary = true, enabled = name.isNotBlank())
         }
@@ -217,8 +217,8 @@ private fun ManageSheet(pc: PairedPc, onSave: (String) -> Unit, onForget: () -> 
 @Composable
 private fun Step(n: String, text: String) {
     val c = Gs.colors
-    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Box(Modifier.size(24.dp).clip(RoundedCornerShape(12.dp)).background(c.accent), contentAlignment = Alignment.Center) { Label(n, color = c.ink, style = Gs.type.small) }
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Space.md)) {
+        Box(Modifier.size(24.dp).clip(RoundedCornerShape(Radius.key)).background(c.accent), contentAlignment = Alignment.Center) { Label(n, color = c.ink, style = Gs.type.small) }
         Label(text, color = c.dim, style = Gs.type.body)
     }
 }
@@ -236,7 +236,7 @@ private fun CodeSheet(error: String?, onClearError: () -> Unit, onDismiss: () ->
             textStyle = Gs.type.mono.copy(color = c.text),
             cursorBrush = SolidColor(c.accent),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            modifier = Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(14.dp)).background(c.s2).padding(14.dp),
+            modifier = Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(Radius.chip)).background(c.s2).padding(Space.md),
         )
         if (error != null) Label(error, color = c.bad, style = Gs.type.small)
         Pill("Pair", { onSubmit(text) }, Modifier.fillMaxWidth(), primary = true, enabled = text.isNotBlank())

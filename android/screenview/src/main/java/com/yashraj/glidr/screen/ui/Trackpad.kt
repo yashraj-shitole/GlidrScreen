@@ -60,7 +60,7 @@ fun Trackpad(
     val hp by rememberUpdatedState(haptic)
     var touching by remember { mutableStateOf(false) }
 
-    Row(modifier.clip(RoundedCornerShape(24.dp)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(24.dp))) {
+    Row(modifier.clip(RoundedCornerShape(Radius.pad)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(Radius.pad))) {
         Box(
             Modifier.weight(1f).fillMaxHeight()
                 .pointerInput(client) {
@@ -123,7 +123,7 @@ fun Trackpad(
         ) {
             val dot = c.dot
             Canvas(Modifier.fillMaxSize()) {
-                val step = 22.dp.toPx()
+                val step = 24.dp.toPx()
                 var y = step / 2
                 while (y < size.height) {
                     var x = step / 2
@@ -132,7 +132,7 @@ fun Trackpad(
                 }
             }
             if (!touching) {
-                Column(Modifier.align(Alignment.Center).padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.align(Alignment.Center).padding(horizontal = Space.lg), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xs)) {
                     Label("Trackpad", color = c.dim)
                     Label("Tap: click   Two-finger tap: right-click", color = c.dim, style = Gs.type.small)
                     Label("Two fingers: scroll   Tap, then drag: drag", color = c.dim, style = Gs.type.small)
@@ -150,7 +150,7 @@ private fun ScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
     val line = c.line
     Box(
         // This strip is on the screen edge, where Android's back swipe starts: keep that gesture off it.
-        Modifier.width(44.dp).fillMaxHeight().background(c.s2).systemGestureExclusion()
+        Modifier.width(48.dp).fillMaxHeight().background(c.s2).systemGestureExclusion()
             .pointerInput(client) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
@@ -166,7 +166,7 @@ private fun ScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.fillMaxSize()) {
-            val step = 14.dp.toPx()
+            val step = 16.dp.toPx()
             var y = step
             while (y < size.height) {
                 drawLine(line, Offset(size.width * 0.3f, y), Offset(size.width * 0.7f, y), 2.dp.toPx(), StrokeCap.Round)
@@ -179,7 +179,7 @@ private fun ScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
 /** Left / right mouse buttons. Holding a button keeps it pressed, so these also drag. */
 @Composable
 fun MouseButtons(client: ScreenClient, haptic: (Boolean) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(modifier.fillMaxWidth().height(56.dp), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         HoldButton("Left", MouseButton.Left, client, haptic, Modifier.weight(1f))
         HoldButton("Right", MouseButton.Right, client, haptic, Modifier.weight(1f))
     }
@@ -191,8 +191,8 @@ private fun HoldButton(label: String, button: MouseButton, client: ScreenClient,
     var down by remember { mutableStateOf(false) }
     val hp by rememberUpdatedState(haptic)
     Box(
-        modifier.fillMaxHeight().clip(RoundedCornerShape(18.dp)).background(if (down) c.accent else c.s2)
-            .border(1.dp, c.line, RoundedCornerShape(18.dp))
+        modifier.fillMaxHeight().clip(RoundedCornerShape(Radius.control)).background(if (down) c.accent else c.s2)
+            .border(1.dp, c.line, RoundedCornerShape(Radius.control))
             .pointerInput(client, button) {
                 awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)

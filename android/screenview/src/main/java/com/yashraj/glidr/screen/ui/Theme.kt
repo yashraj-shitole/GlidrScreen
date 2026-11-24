@@ -11,6 +11,7 @@ import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yashraj.glidr.screen.R
 
@@ -28,6 +29,45 @@ private val ACCENTS = listOf(
     Color(0xFF7DB2FF) to Color(0xFF1D4FB0), // Sky
     Color(0xFFFF7FB0) to Color(0xFFA8265B), // Rose
 )
+
+/**
+ * Layout system, the same one the Glidr app uses. Sources: Material Design layout metrics (components on an 8dp
+ * grid, type and icons on a 4dp sub-grid, 16dp side margins, 48dp touch targets with at least 8dp between
+ * neighbours) and Apple's HIG (44pt minimum hit area).
+ *
+ * Rules the screens follow:
+ *  - Screen gutter 16 ([Space.lg]).
+ *  - Related items inside a group 8 ([Space.sm]); a label above its control 12 ([Space.md]).
+ *  - Separate components stacked on a screen (trackpad, mouse buttons, tool row) 12 ([Space.md]); sections 24 ([Space.xl]).
+ *  - Card inner padding 16 in lists, 20 ([Space.inset]) in dialogs and sheets. Pill button text padding 20.
+ *  - Touch targets are 48dp. Key chips and segmented options are 44dp, the HIG minimum, so a row of them fits a phone.
+ *  - Nothing off the 4dp grid except hairlines (1, 2) and drawn graphics (dot grid, ticks).
+ */
+object Space {
+    val hair = 2.dp
+    val xs = 4.dp
+    val sm = 8.dp
+    val md = 12.dp
+    val lg = 16.dp
+    val inset = 20.dp
+    val xl = 24.dp
+}
+
+/** Widest a bottom sheet gets, so wide screens and landscape keep a readable column (Material: ~560-600dp). */
+val MAX_SHEET_WIDTH = 560.dp
+
+/**
+ * Corner radii on one scale. Nested shapes follow `inner = outer - inset`, so curves stay concentric:
+ * segmented control 16 - 4 = 12 ([key]).
+ */
+object Radius {
+    val key = 12.dp
+    val chip = 16.dp
+    val control = 20.dp
+    val card = 24.dp
+    val sheet = 28.dp
+    val pad = 32.dp
+}
 
 /** The accent colours on offer, in the order [screenColors] takes them. */
 val AccentSwatches: List<Color> get() = ACCENTS.map { it.first }

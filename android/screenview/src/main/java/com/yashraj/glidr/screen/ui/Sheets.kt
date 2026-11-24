@@ -91,17 +91,17 @@ fun MonitorSheet(client: ScreenClient, onDismiss: () -> Unit) {
                 Box(Modifier.align(Alignment.Center).size((totalW * scale).dp, (totalH * scale).dp)) {
                     monitors.forEachIndexed { i, m ->
                         val on = m.id == active
-                        val shape = RoundedCornerShape(8.dp)
+                        val shape = RoundedCornerShape(Radius.key)
                         Box(
                             Modifier.offset(((m.x - minX) * scale).dp, ((m.y - minY) * scale).dp).size((m.w * scale).dp - 4.dp, (m.h * scale).dp - 4.dp)
-                                .clip(shape).background(c.s2).border(if (on) 3.dp else 1.dp, if (on) c.accent else c.line, shape)
+                                .clip(shape).background(c.s2).border(if (on) Space.hair else 1.dp, if (on) c.accent else c.line, shape)
                                 .clickable { client.switchMonitor(m.id); onDismiss() },
                         ) {
                             thumbs[m.id]?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                             Label(
                                 "${i + 1}  ${m.w}x${m.h}", color = if (on) c.ink else c.text, style = Gs.type.mono,
-                                modifier = Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(6.dp))
-                                    .background(if (on) c.accent else Color0).padding(horizontal = 6.dp, vertical = 2.dp),
+                                modifier = Modifier.align(Alignment.BottomStart).padding(Space.sm).clip(RoundedCornerShape(Radius.key))
+                                    .background(if (on) c.accent else Color0).padding(horizontal = Space.sm, vertical = Space.hair),
                             )
                         }
                     }
@@ -165,7 +165,7 @@ fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: ()
     var tab by remember { mutableIntStateOf(-1) }
 
     Sheet(onDismiss, scrim = androidx.compose.ui.graphics.Color(0x22000000)) {
-        Column(Modifier.imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.imePadding().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             BasicTextField(
                 value = field,
                 onValueChange = ::onTyped,
@@ -175,14 +175,14 @@ fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: ()
                 keyboardActions = KeyboardActions(onSend = { press("Enter") }),
                 singleLine = true,
                 decorationBox = { inner ->
-                    Box(Modifier.fillMaxWidth().height(52.dp).clip(RoundedCornerShape(14.dp)).background(c.s2).padding(horizontal = 14.dp), contentAlignment = Alignment.CenterStart) {
+                    Box(Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(Radius.chip)).background(c.s2).padding(horizontal = Space.lg), contentAlignment = Alignment.CenterStart) {
                         if (field.text.isEmpty()) Label("Type here, it goes to the PC", color = c.dim)
                         inner()
                     }
                 },
                 modifier = Modifier.focusRequester(focus),
             )
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 MODIFIERS.forEach { m ->
                     KeyChip(m, active = m in latched) { if (m in latched) latched.remove(m) else latched.add(m); haptic(false) }
                 }
@@ -190,30 +190,30 @@ fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: ()
                 KeyChip("Bksp") { press("Backspace") }; KeyChip("Del") { press("Del") }
                 KeyChip("Left") { press("Left") }; KeyChip("Up") { press("Up") }; KeyChip("Down") { press("Down") }; KeyChip("Right") { press("Right") }
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                 listOf("More keys", "Shortcuts", "Media", "Phrase").forEachIndexed { i, title ->
                     KeyChip(title, active = tab == i) { tab = if (tab == i) -1 else i }
                 }
             }
             when (tab) {
-                0 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                0 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     KeyChip("Enter") { press("Enter") }; KeyChip("Space") { press("Space") }
                     KeyChip("Home") { press("Home") }; KeyChip("End") { press("End") }; KeyChip("PgUp") { press("PgUp") }; KeyChip("PgDn") { press("PgDn") }
                     for (i in 1..12) KeyChip("F$i") { press("F$i") }
                 }
-                1 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                1 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     SHORTCUTS.forEach { s -> KeyChip(s.label) { client.combo(s.keys); haptic(false) } }
                 }
-                2 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                2 -> FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     MEDIA.forEach { (label, key) -> KeyChip(label) { client.key(key); haptic(false) } }
                 }
-                3 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                3 -> Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     Label("Type a phrase in any language, then send it in one go. The field above is for English keys.", color = c.dim, style = Gs.type.small)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically) {
                         BasicTextField(
                             value = phrase, onValueChange = { phrase = it },
                             textStyle = Gs.type.body.copy(color = c.text), cursorBrush = SolidColor(c.accent),
-                            modifier = Modifier.weight(1f).heightIn52().clip(RoundedCornerShape(14.dp)).background(c.s2).padding(14.dp),
+                            modifier = Modifier.weight(1f).fieldHeight().clip(RoundedCornerShape(Radius.chip)).background(c.s2).padding(Space.md),
                         )
                         Pill("Send", { client.typeText(phrase); phrase = "" }, enabled = phrase.isNotEmpty(), primary = true)
                     }
@@ -224,13 +224,13 @@ fun KeyboardSheet(client: ScreenClient, haptic: (Boolean) -> Unit, onDismiss: ()
     }
 }
 
-private fun Modifier.heightIn52() = this.then(Modifier.height(52.dp))
+private fun Modifier.fieldHeight() = this.then(Modifier.height(48.dp))
 
 @Composable
 private fun KeyChip(label: String, active: Boolean = false, onClick: () -> Unit) {
     val c = Gs.colors
     PressBox(
-        onClick, Modifier.height(44.dp).width(if (label.length > 5) 96.dp else 62.dp), label, RoundedCornerShape(12.dp),
+        onClick, Modifier.height(44.dp).width(if (label.length > 5) 96.dp else 64.dp), label, RoundedCornerShape(Radius.key),
         background = if (active) c.accent else c.s2, border = !active,
     ) { Label(label, color = if (active) c.ink else c.text, maxLines = 1, style = Gs.type.small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)) }
 }
@@ -252,7 +252,7 @@ fun SettingsSheet(
     val scroll = rememberScrollState()
     Sheet(onDismiss) {
         Box {
-        Column(Modifier.heightIn(max = maxScroll).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.heightIn(max = maxScroll).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Label("Stream quality", color = c.dim, style = Gs.type.small)
             Segmented(Quality.entries.map { it.label }, quality.ordinal, { client.setQuality(Quality.entries[it]) })
             Label("Always 24 fps. This caps the resolution and bitrate sent from the PC.", color = c.dim, style = Gs.type.small)
@@ -276,11 +276,11 @@ fun SettingsSheet(
             SettingRow("Light theme", "Paper instead of Midnight", prefs.light) { v -> onPrefs { it.copy(light = v) } }
 
             Label("Accent colour", color = c.dim, style = Gs.type.small)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.md)) {
                 AccentSwatches.forEachIndexed { i, color ->
                     val on = prefs.accent == i
                     Box(
-                        Modifier.size(44.dp).clip(CircleShape).background(color).border(if (on) 3.dp else 1.dp, if (on) c.text else c.line, CircleShape)
+                        Modifier.size(48.dp).clip(CircleShape).background(color).border(if (on) Space.hair else 1.dp, if (on) c.text else c.line, CircleShape)
                             .clickable(role = Role.RadioButton) { onPrefs { it.copy(accent = i) } }
                             .semantics { contentDescription = "Accent colour ${i + 1}" },
                     )
@@ -303,7 +303,7 @@ fun SettingsSheet(
             )
         }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
             Pill("Disconnect", onDisconnect, Modifier.weight(1f))
             Pill("Done", onDismiss, Modifier.weight(1f), primary = true)
         }
