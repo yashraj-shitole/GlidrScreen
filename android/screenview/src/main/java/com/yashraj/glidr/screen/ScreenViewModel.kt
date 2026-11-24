@@ -1,8 +1,11 @@
 package com.yashraj.glidr.screen
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.yashraj.glidr.screen.lock.AppLockSession
+import com.yashraj.glidr.screen.lock.AppLockStore
 import com.yashraj.glidr.screen.net.ConnState
 import com.yashraj.glidr.screen.net.ScreenClient
 import com.yashraj.glidr.screen.signal.PairedPc
@@ -33,6 +36,12 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
     private val store = PairingStore(app)
     private val prefsStore = ViewerPrefsStore(app)
 
+    /**
+     * The app lock (PIN). Whether the app is unlocked is kept here in memory only, so a new process starts locked.
+     * While it is locked nothing pairs or connects (see [pair] and [connect]).
+     */
+    val lock = AppLockSession(AppLockStore(app), System::currentTimeMillis, SystemClock::elapsedRealtime)
+
     private val _pcs = MutableStateFlow(store.load())
     val pcs: StateFlow<List<PairedPc>> = _pcs.asStateFlow()
     private val _prefs = MutableStateFlow(prefsStore.load())
@@ -45,6 +54,7 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Pairs from a scanned QR, a pasted link or a typed code. Returns the new PC, or null (see [pairError]). */
     fun pair(text: String): PairedPc? {
+        if (lock.locked.value) return null // nothing pairs behind the lock screen
         val info = PairingParser.parse(text)
         if (info == null) {
             _pairError.value = "That does not look like a Glidr Screen pairing code."
@@ -99,6 +109,7 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
     private var activePcId: String? = null
 
     fun connect(pc: PairedPc) {
+        if (lock.locked.value) return // nothing connects behind the lock screen
         nameJob?.cancel()
         liveJob?.cancel()
         _client.value?.close()

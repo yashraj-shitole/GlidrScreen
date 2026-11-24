@@ -17,6 +17,7 @@ GlidrScreen/
   android/
     screenview/         Android library, package com.yashraj.glidr.screen
       signal/           SignalCrypto, Pairing (+store, optional m=/b= link params), WakeOnLan, NtfySignaling
+      lock/             App lock: PinLock (PBKDF2), LockPolicy (delay, wait after wrong tries), AppLockSession
       net/              ScreenClient (session + reconnect + control API), WebRtcRuntime, Protocol
       input/            PointerMath (acceleration), VideoMapping (touch -> PC coords)
       update/           GitHub release check, off unless the host app passes an UpdateSource
@@ -89,3 +90,30 @@ targets with at least 8 dp between neighbours) and Apple's HIG (44 pt minimum hi
 * The PC app cannot capture or control the lock screen, UAC prompts or elevated windows (Windows isolates them).
   Run the host as administrator to control elevated windows.
 * 24 fps is the cap, not a guarantee: under heavy congestion resolution drops first (`maintain-framerate`).
+
+## App lock
+
+A stolen, unlocked phone would otherwise have full access to every paired PC, so the app can be locked with a PIN
+(Home screen footer, "App lock"). Code: `screenview/.../lock/` plus `ui/LockScreen.kt` and `ui/LockSettingsSheet.kt`.
+
+* **PIN.** 4 to 8 digits; all-the-same-digit and straight runs (1234, 4321) are refused. It is never stored: a random
+  16-byte salt and PBKDF2WithHmacSHA256 (120 000 rounds, 256 bit), base64, in the private preferences file
+  `glidr_screen_lock`. Backup is off (`allowBackup=false`) and `data_extraction_rules.xml` excludes every shared
+  preference from cloud backup and device transfer, so the file never leaves the phone. Comparison is constant-time and
+  fails closed: a damaged stored value never verifies and never throws.
+* **When it locks.** At every app start, and when the app has been in the background (Activity stopped, tracked with a
+  lifecycle observer in `GlidrScreenApp`) for at least the chosen delay: Immediately, 1 minute (default) or 5 minutes,
+  on a monotonic clock. The unlocked state is in memory only. It never interrupts an app that stays in the foreground,
+  even in a live session. The QR scanner is a screen of its own: coming back from it within 3 minutes does not lock.
+* **Wrong tries.** After 5 in a row the next try is refused for 30 s, then 1 min, 5 min and 15 min (the cap). Tries made
+  in the settings sheet count too. The counter and the deadline are persisted, so killing the app does not reset them;
+  a clock set back cannot stretch the wait, a clock set forward can shorten it (no trusted time source offline).
+* **What the lock covers.** While locked, `LockScreen` is the only thing composed: no PC list, no video, no sheets, no
+  pairing prompt, no hardware-keyboard forwarding, and nothing for a screen reader to find behind it. `pair` and
+  `connect` refuse while locked, the update check waits, and a `glidr://` pairing link stays pending and is handled after
+  unlock. Files shared to the app wait in the queue as before; nothing is read until a PC is connected.
+* **Live session in the background.** The session is not ended when the app is left, and there is no foreground service,
+  so it continues only as long as Android keeps the process and network running. Coming back after the delay shows the
+  lock screen and the session resumes after unlock if it is still alive.
+* **Forgotten PIN.** There is no reset and no recovery. Clearing the app's data removes the lock and all pairings.
+
