@@ -9,6 +9,7 @@ import com.yashraj.glidr.screen.signal.PairedPc
 import com.yashraj.glidr.screen.signal.PairingParser
 import com.yashraj.glidr.screen.signal.PairingStore
 import com.yashraj.glidr.screen.signal.UNNAMED_PC
+import com.yashraj.glidr.screen.signal.WakeOnLan
 import com.yashraj.glidr.screen.update.GitHubReleases
 import com.yashraj.glidr.screen.update.UpdateSource
 import com.yashraj.glidr.screen.update.UpdateState
@@ -48,6 +49,17 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearPairError() { _pairError.value = null }
+
+    private val _wakeNote = MutableStateFlow<String?>(null)
+    /** Result line of the last Wake tap ("Wake signal sent..." or the error); null before any. */
+    val wakeNote: StateFlow<String?> = _wakeNote.asStateFlow()
+
+    /** Sends a Wake-on-LAN packet to [pc] (does nothing for a PC that shared no MAC address). */
+    fun wake(pc: PairedPc) {
+        val mac = pc.mac ?: return
+        _wakeNote.value = "Sending wake signal..."
+        viewModelScope.launch { _wakeNote.value = WakeOnLan.resultMessage(WakeOnLan.send(mac, pc.broadcast)) }
+    }
 
     private var nameJob: Job? = null
     private var liveJob: Job? = null

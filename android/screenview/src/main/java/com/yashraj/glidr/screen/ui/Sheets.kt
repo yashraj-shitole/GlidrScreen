@@ -292,6 +292,7 @@ fun SettingsSheet(
             SettingRow("Left-handed", "Scroll strip on the left side", prefs.leftHanded) { v -> onPrefs { it.copy(leftHanded = v) } }
             SettingRow("One-handed layout", "Display buttons next to the tools, in thumb reach", prefs.oneHanded) { v -> onPrefs { it.copy(oneHanded = v) } }
             SettingRow("Simple gestures", "Buttons for middle click and scrolling", prefs.simpleGestures) { v -> onPrefs { it.copy(simpleGestures = v) } }
+            SettingRow("Three-finger swipes", "Up: task view. Down: desktop. Left, right: switch virtual desktop", prefs.swipeGestures) { v -> onPrefs { it.copy(swipeGestures = v) } }
             SettingRow("Haptics", "Vibrate on clicks", prefs.haptics) { v -> onPrefs { it.copy(haptics = v) } }
             SettingRow("Show stats", "fps, resolution, bitrate and ping", prefs.showStats) { v -> onPrefs { it.copy(showStats = v) } }
             SettingRow("Light theme", "Paper instead of Midnight", prefs.light) { v -> onPrefs { it.copy(light = v) } }
@@ -311,6 +312,8 @@ fun SettingsSheet(
             Label("Trackpad gestures", color = c.dim, style = Gs.type.small)
             Label(
                 "Tap: click. Two-finger tap: right-click. Three-finger tap: middle-click. Two fingers: scroll. " +
+                    "With Three-finger swipes on, swiping three fingers up opens task view (Win+Tab), down shows the desktop (Win+D), " +
+                    "left or right switches virtual desktop. " +
                     "Tap, then drag: drag. The side strip also scrolls. With Direct touch on, long-press right-clicks. " +
                     "With a keyboard or mouse attached, they control the PC directly.",
                 color = c.dim, style = Gs.type.small,

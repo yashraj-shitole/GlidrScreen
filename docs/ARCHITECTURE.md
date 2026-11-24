@@ -16,7 +16,7 @@ GlidrScreen/
     renderer/ui.*       control panel (QR code, devices, stats, settings)
   android/
     screenview/         Android library, package com.yashraj.glidr.screen
-      signal/           SignalCrypto, Pairing (+store), NtfySignaling
+      signal/           SignalCrypto, Pairing (+store, optional m=/b= link params), WakeOnLan, NtfySignaling
       net/              ScreenClient (session + reconnect + control API), WebRtcRuntime, Protocol
       input/            PointerMath (acceleration), VideoMapping (touch -> PC coords)
       update/           GitHub release check, off unless the host app passes an UpdateSource

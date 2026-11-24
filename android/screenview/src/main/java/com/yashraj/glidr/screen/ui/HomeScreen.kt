@@ -36,6 +36,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.yashraj.glidr.screen.signal.PairedPc
+import com.yashraj.glidr.screen.signal.WakeOnLan
 import com.yashraj.glidr.screen.update.UpdateState
 
 /** Opens Google's code scanner (no camera permission needed). */
@@ -60,6 +61,8 @@ fun HomeScreen(
     onRename: (PairedPc, String) -> Unit,
     onClose: (() -> Unit)?,
     update: UpdateUi? = null,
+    onWake: (PairedPc) -> Unit = {},
+    wakeNote: String? = null,
 ) {
     val c = Gs.colors
     val context = LocalContext.current
@@ -111,18 +114,30 @@ fun HomeScreen(
                 }
             } else {
                 items(pcs, key = { it.id }) { pc ->
-                    Row(
+                    Column(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.card)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(Radius.card)).padding(Space.lg),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(Space.md),
                     ) {
-                        Box(Modifier.size(48.dp).clip(RoundedCornerShape(Radius.key)).background(c.s2), contentAlignment = Alignment.Center) { Icon(Ico.Display, c.text) }
-                        Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
-                            Label(pc.name, maxLines = 1, style = Gs.type.body)
-                            Label(TimeText.lastConnected(System.currentTimeMillis(), pc.lastLive), color = c.dim, style = Gs.type.small)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(48.dp).clip(RoundedCornerShape(Radius.key)).background(c.s2), contentAlignment = Alignment.Center) { Icon(Ico.Display, c.text) }
+                            Column(Modifier.weight(1f).padding(horizontal = Space.md)) {
+                                Label(pc.name, maxLines = 1, style = Gs.type.body)
+                                Label(TimeText.lastConnected(System.currentTimeMillis(), pc.lastLive), color = c.dim, style = Gs.type.small)
+                            }
+                            RoundIconButton(Ico.Edit, "Rename or forget ${pc.name}", { manage = pc })
+                            Spacer(Modifier.size(Space.sm))
+                            Pill("Connect", { onConnect(pc) }, primary = true)
                         }
-                        RoundIconButton(Ico.Edit, "Rename or forget ${pc.name}", { manage = pc })
-                        Spacer(Modifier.size(8.dp))
-                        Pill("Connect", { onConnect(pc) }, primary = true)
+                        // a PC that shared its network address can be woken up first (the pill row)
+                        if (pc.mac != null) Pill("Wake", { onWake(pc) }, Modifier.fillMaxWidth())
+                    }
+                }
+                if (pcs.any { it.mac != null }) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                            if (wakeNote != null) Label(wakeNote, color = if (wakeNote.startsWith("Could not")) c.bad else c.text, style = Gs.type.small)
+                            Label(WakeOnLan.CAVEAT, color = c.dim, style = Gs.type.small)
+                        }
                     }
                 }
             }

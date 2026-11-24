@@ -27,6 +27,7 @@ data class ViewerPrefs(
     val leftHanded: Boolean = false, // scroll strip and (one-handed) monitor chips on the left
     val oneHanded: Boolean = false, // monitor chips move into the tool row, within thumb reach
     val simpleGestures: Boolean = false, // on-screen Middle / Scroll buttons for people who cannot use multi-finger gestures
+    val swipeGestures: Boolean = false, // three-finger swipes send Windows shortcuts (task view, desktop, virtual desktops)
     val panelCollapsed: Boolean = false, // landscape controls panel folded to an edge handle
     val shortcuts: List<CustomShortcut> = emptyList(),
 ) {
@@ -35,6 +36,7 @@ data class ViewerPrefs(
         sensitivity = o.sensitivity, accel = o.accel, scrollSpeed = o.scrollSpeed, naturalScroll = o.naturalScroll,
         directTouch = o.directTouch, edgeScroll = o.edgeScroll, cornerClick = o.cornerClick, precision = o.precision,
         leftHanded = o.leftHanded, oneHanded = o.oneHanded, simpleGestures = o.simpleGestures,
+        swipeGestures = o.swipeGestures,
     )
 
     /** This with the shared fields (look, haptics, deck, panel) of [o]. */
@@ -101,6 +103,7 @@ class ViewerPrefsStore(context: Context) {
         cornerClick = p.getBoolean(k(pcId, "corner"), d.cornerClick), precision = p.getBoolean(k(pcId, "precision"), d.precision),
         leftHanded = p.getBoolean(k(pcId, "left"), d.leftHanded), oneHanded = p.getBoolean(k(pcId, "onehand"), d.oneHanded),
         simpleGestures = p.getBoolean(k(pcId, "simple"), d.simpleGestures),
+        swipeGestures = p.getBoolean(k(pcId, "swipe"), d.swipeGestures),
     )
 
     private fun writeInput(e: android.content.SharedPreferences.Editor, pcId: String?, v: ViewerPrefs) {
@@ -109,5 +112,6 @@ class ViewerPrefsStore(context: Context) {
             .putBoolean(k(pcId, "edge"), v.edgeScroll).putBoolean(k(pcId, "corner"), v.cornerClick)
             .putBoolean(k(pcId, "precision"), v.precision).putBoolean(k(pcId, "left"), v.leftHanded)
             .putBoolean(k(pcId, "onehand"), v.oneHanded).putBoolean(k(pcId, "simple"), v.simpleGestures)
+            .putBoolean(k(pcId, "swipe"), v.swipeGestures)
     }
 }

@@ -45,6 +45,8 @@ import com.yashraj.glidr.screen.ViewerPrefs
 import com.yashraj.glidr.screen.input.PadZone
 import com.yashraj.glidr.screen.input.PadZones
 import com.yashraj.glidr.screen.input.PointerMath
+import com.yashraj.glidr.screen.input.Swipe
+import com.yashraj.glidr.screen.input.SwipeGestures
 import com.yashraj.glidr.screen.net.MouseButton
 import com.yashraj.glidr.screen.net.ScreenClient
 import kotlinx.coroutines.delay
@@ -58,7 +60,8 @@ private const val CORNER_DP = 64
 
 /**
  * Laptop-style trackpad: one finger moves, tap clicks, two-finger tap right-clicks, three-finger tap middle-clicks,
- * two fingers scroll, tap-then-drag drags. A side strip (the right by default, the left when left-handed) is a scroll
+ * two fingers scroll, tap-then-drag drags. With "Three-finger swipes" on, three fingers that travel far enough in one
+ * direction send a Windows shortcut instead (see [SwipeGestures]). A side strip (the right by default, the left when left-handed) is a scroll
  * strip. Opt-in: a bottom strip that scrolls sideways, a bottom-right corner that right-clicks, and precision mode
  * (a second finger resting on the pad slows the pointer).
  */
@@ -110,6 +113,7 @@ fun Trackpad(
                         var moved = false
                         var scrolling = false
                         var secondTravel = 0f
+                        var swipeTotal = Offset.Zero // average travel of three fingers (three-finger swipes)
                         var total = Offset.Zero
                         var lastUp = first.uptimeMillis
                         try {
@@ -133,6 +137,11 @@ fun Trackpad(
                                     } else if (moved && zone == PadZone.EdgeScroll) {
                                         client.scrollBy(-dir * d.x * p.scrollSpeed / PX_PER_NOTCH * 1.6f, 0f)
                                     }
+                                } else if (p.swipeGestures && pressed.size >= 3) {
+                                    // three fingers with swipes on: collect the travel, decide when they lift (small travel stays a tap)
+                                    var dx = 0f; var dy = 0f
+                                    pressed.forEach { dx += it.positionChange().x; dy += it.positionChange().y }
+                                    swipeTotal += Offset(dx / pressed.size, dy / pressed.size)
                                 } else if (pressed.size >= 2) {
                                     pressed.filter { it.id != first.id }.forEach { secondTravel += it.positionChange().getDistance() }
                                     if (p.precision && !scrolling && primary != null && PadZones.secondFingerStill(secondTravel, slop)) {
@@ -173,8 +182,14 @@ fun Trackpad(
                             touching = false
                             if (dragMode) client.buttonUp(MouseButton.Left)
                         }
+                        val swipe = if (p.swipeGestures && maxFingers >= 3 && !dragMode) SwipeGestures.classify(swipeTotal.x, swipeTotal.y, slop) else Swipe.None
+                        val swipeTravel = swipeTotal.getDistance()
                         if (dragMode) {
                             lastTapEnd = 0
+                        } else if (swipe.keys != null) {
+                            client.combo(swipe.keys); hp(false)
+                        } else if (p.swipeGestures && maxFingers >= 3 && swipeTravel > SwipeGestures.SLOP_FACTOR * slop) {
+                            // a long diagonal three-finger drag is neither a swipe nor a tap
                         } else if (!moved && lastUp - first.uptimeMillis < TAP_MS) {
                             when (maxFingers) {
                                 1 -> if (zone == PadZone.Corner) {

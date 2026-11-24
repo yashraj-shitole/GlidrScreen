@@ -133,10 +133,19 @@ class ScreenClient(
     private val _saver = MutableStateFlow(false)
     /** Data saver as last asked for with [setStreamQuality]. */
     val dataSaver: StateFlow<Boolean> = _saver.asStateFlow()
+    private val _mode = MutableStateFlow(StreamMode.Auto)
+    /** What the encoder favours, as last asked for with [setStreamMode] / [setStreamQuality]. */
+    val streamMode: StateFlow<StreamMode> = _mode.asStateFlow()
+    /** Null until the user picks a mode: until then the `quality` messages keep the old shape without `mode`. */
+    @Volatile private var chosenMode: StreamMode? = null
     @Volatile private var audioTrack: AudioTrack? = null
     @Volatile private var wantCursor = false
     /** The stream settings the user picked this session; re-sent after a reconnect, null until they pick one. */
     @Volatile private var chosenStream: Triple<Quality, Int?, Boolean?>? = null
+
+    private val _stage = MutableStateFlow("")
+    /** The furthest point the current (or last) connection attempt reached, see [ConnectStages]; empty at the start of each attempt. */
+    val stage: StateFlow<String> = _stage.asStateFlow()
 
     private val _diag = MutableStateFlow("")
     /** One line of connection diagnostics (candidate types, ICE state), shown while connecting. */
@@ -246,6 +255,7 @@ class ScreenClient(
     private suspend fun connectOnce(attempt: Int) = coroutineScope {
         val sid = ByteArray(8).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
         currentSid = sid
+        _stage.value = ""
         val inbox = Channel<JSONObject>(Channel.UNLIMITED)
         val opened = CompletableDeferred<Unit>()
         val sigJob = launch {
@@ -269,10 +279,12 @@ class ScreenClient(
         try {
             if (attempt == 0) _state.value = ConnState.Connecting("Contacting PC")
             withTimeoutOrNull(15_000) { opened.await() } ?: throw Exception("Could not reach the signaling server. Check your internet connection.")
+            _stage.value = ConnectStages.SIGNALING
             signaling.publish(
                 JSONObject().put("t", "req").put("from", "p").put("sid", sid).put("ts", System.currentTimeMillis())
                     .put("n", deviceName()),
             )
+            _stage.value = ConnectStages.REQUEST_SENT
             _state.value = waitingState(attempt)
 
             val offer = withTimeoutOrNull(25_000) {
@@ -300,6 +312,7 @@ class ScreenClient(
                 "The PC did not answer. Check that Glidr Screen is running on it and online. If it still fails, " +
                     "this phone may have been removed on the PC, or the PC's signaling server changed: pair again.",
             )
+            _stage.value = ConnectStages.OFFER
             applyHostName(offer.optString("host"))
             localTypes.clear(); iceState = "new"; gatherState = "new"
             remoteSummary = summary(Regex("a=candidate:.* typ ([a-z]+)").findAll(offer.getString("sdp")).groupingBy { it.groupValues[1] }.eachCount())
@@ -335,6 +348,7 @@ class ScreenClient(
                 )
             }
             wasLive = true
+            _stage.value = ConnectStages.DIRECT
             _state.value = ConnState.Live
             val workers = launch { runWorkers() }
             val network = watchNetwork { ended.complete("network") }
@@ -582,7 +596,7 @@ class ScreenClient(
         chosenStream?.let { (q, fps, saver) ->
             _quality.value = q
             fps?.let { _fps.value = it }
-            send(Msg.quality(q, fps, saver))
+            send(Msg.quality(q, fps, saver, chosenMode))
         }
     }
 
@@ -637,17 +651,30 @@ class ScreenClient(
         _quality.value = q
         val prev = chosenStream
         chosenStream = Triple(q, prev?.second, prev?.third)
-        send(Msg.quality(q, prev?.second, prev?.third))
+        send(Msg.quality(q, prev?.second, prev?.third, chosenMode))
     }
 
-    /** Quality preset plus frame rate (one of [FPS_OPTIONS]) and data saver in one message. */
-    fun setStreamQuality(q: Quality, fps: Int, saver: Boolean) {
+    /**
+     * Quality preset plus frame rate (one of [FPS_OPTIONS]) and data saver in one message. [mode] (default: keep the
+     * current choice, Auto until one is made) is sent along once the user has picked a mode.
+     */
+    fun setStreamQuality(q: Quality, fps: Int, saver: Boolean, mode: StreamMode? = null) {
         val f = if (fps in FPS_OPTIONS) fps else DEFAULT_FPS
+        if (mode != null) { chosenMode = mode; _mode.value = mode }
         _quality.value = q
         _fps.value = f
         _saver.value = saver
         chosenStream = Triple(q, f, saver)
-        send(Msg.quality(q, f, saver))
+        send(Msg.quality(q, f, saver, chosenMode))
+    }
+
+    /** Auto / Fast (latency) / Sharp (clarity): what the PC encoder favours. Re-sent after a reconnect. */
+    fun setStreamMode(mode: StreamMode) {
+        chosenMode = mode
+        _mode.value = mode
+        val prev = chosenStream
+        chosenStream = Triple(_quality.value, prev?.second, prev?.third)
+        send(Msg.quality(_quality.value, prev?.second, prev?.third, mode))
     }
 
     /**
