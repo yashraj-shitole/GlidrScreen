@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { EventEmitter } = require('events');
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, clipboard, session, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, clipboard, session, shell, powerMonitor, powerSaveBlocker } = require('electron');
 
 const SELFTEST = process.argv.includes('--selftest');
 if (SELFTEST) app.setPath('userData', path.join(os.tmpdir(), 'glidr-screen-selftest-' + process.pid));
@@ -26,8 +26,11 @@ const crypto = require('./crypto');
 const icon = require('./icon');
 const { UpdateChecker } = require('./updates');
 const { repairAutostart } = require('./autostart');
+const { PauseTimer, untilLabel, HOUR_MS } = require('./pausetimer');
+const { KeepAwake, wirePower } = require('./power');
+const links = require('./links');
 
-let store, signaling, input, core, engineWin, uiWin, tray, updates;
+let store, signaling, input, core, engineWin, uiWin, tray, updates, pauseTimer, keepAwake;
 let notifiedVersion = null;
 const engine = new EventEmitter();
 engine.send = (cmd) => { if (engineWin && !engineWin.isDestroyed()) engineWin.webContents.send('cmd', cmd); };
@@ -84,10 +87,33 @@ function openLink(url) {
 /** Login item: started hidden in the tray. The same args must be passed when reading the setting back. */
 const LOGIN_ITEM = { args: ['--hidden'] };
 
+/** Every manual change of sharing goes through here, so it cancels a running timed pause. */
+function setSharing(on) {
+  pauseTimer?.clear();
+  core.setSharing(on);
+}
+
+/** Pauses now and resumes by itself. [arm] picks when (see PauseTimer). */
+function pauseTimed(arm) {
+  core.setSharing(false);
+  arm(pauseTimer);
+  pushState();
+}
+
+/** Runs a glidr-screen:// verb. Anything that is not exactly one of three known verbs is ignored (see links.js). */
+function runLink(url) {
+  if (!core) return null;
+  return links.handleLink(url, {
+    pause: () => setSharing(false),
+    resume: () => setSharing(true),
+    disconnect: () => core.endSession('disconnected by link', true),
+  });
+}
+
 async function buildState() {
   store.pruneSlots();
   const snap = core.snapshot();
-  const open = store.data.slots.filter((s) => !s.claimedAt).sort((a, b) => b.createdAt - a.createdAt)[0];
+  const open = store.data.slots.filter((s) => !s.claimedAt && !s.needsRepair).sort((a, b) => b.createdAt - a.createdAt)[0];
   let pairing = null;
   if (open) {
     const key = Buffer.from(open.key, 'base64url');
@@ -101,13 +127,15 @@ async function buildState() {
   return {
     ...snap, pairing,
     devices: store.data.slots.filter((s) => s.claimedAt).map((s) => ({
-      id: s.id, name: s.name || 'Phone', lastSeen: s.lastSeen, connected: snap.device?.slotId === s.id,
+      id: s.id, name: s.name || 'Phone', lastSeen: s.lastSeen, connected: snap.device?.slotId === s.id, needsRepair: !!s.needsRepair,
     })),
     settings: {
       hostName: store.get('hostName'), allowControl: store.get('allowControl'), quality: store.get('quality'),
       codec: store.get('codec'), signalBase: store.get('signalBase'),
       autostart: app.getLoginItemSettings(LOGIN_ITEM).openAtLogin,
+      keepAwake: store.get('keepAwake'), endOnLock: store.get('endOnLock'), shareAudio: store.get('shareAudio'),
     },
+    pausedLabel: snap.sharing ? null : pauseTimer.label(),
     version: app.getVersion(),
     update: updates.state,
   };
@@ -125,15 +153,21 @@ function updateTray() {
   if (!tray) return;
   const s = core.snapshot();
   const label = { paused: 'Sharing paused', waiting: 'Ready', connecting: 'Connecting...', streaming: `Streaming to ${s.device?.name}` }[s.status];
-  tray.setToolTip(`Glidr Screen: ${label}`);
+  const timed = !s.sharing ? pauseTimer.label() : null;
+  const status = timed || label;
+  tray.setToolTip(`Glidr Screen: ${status}`);
   const u = updates.state;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Glidr Screen', click: createUiWindow },
-    { label, enabled: false },
+    { label: status, enabled: false },
     ...(u.status === 'available' ? [{ label: `Download update ${u.latest}`, click: () => openLink(u.download) }] : []),
     ...(s.status === 'streaming' || s.status === 'connecting'
       ? [{ label: 'Disconnect phone', click: () => core.endSession('disconnected on PC', true) }] : []),
-    { label: s.sharing ? 'Pause sharing' : 'Resume sharing', click: () => core.setSharing(!s.sharing) },
+    { label: s.sharing ? 'Pause sharing' : 'Resume sharing', click: () => setSharing(!s.sharing) },
+    ...(s.sharing ? [
+      { label: 'Pause for 1 hour', click: () => pauseTimed((t) => t.pauseFor(HOUR_MS)) },
+      { label: untilLabel(Date.now()), click: () => pauseTimed((t) => t.pauseUntilHour(8)) },
+    ] : []),
     { label: 'Check for updates', click: () => updates.check() },
     { type: 'separator' },
     { label: 'Quit', click: () => { quitting = true; app.quit(); } },
@@ -150,10 +184,13 @@ function registerIpc() {
         if (core.sess?.slotId === arg) core.endSession('device removed', true);
         store.revoke(arg); core.refreshSlots(); break;
       case 'disconnect': core.endSession('disconnected on PC', true); break;
-      case 'sharing': core.setSharing(!!arg); break;
+      case 'sharing': setSharing(!!arg); break;
+      case 'repair': // a phone whose key cannot be read: drop it and open a fresh pairing
+        if (core.sess?.slotId === arg) core.endSession('device removed', true);
+        store.revoke(arg); store.createSlot(); core.refreshSlots(); break;
       case 'setting': {
         const patch = {};
-        if (typeof arg.allowControl === 'boolean') patch.allowControl = arg.allowControl;
+        for (const k of ['allowControl', 'keepAwake', 'endOnLock', 'shareAudio']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -164,6 +201,7 @@ function registerIpc() {
         store.set(patch);
         if (patch.signalBase) signaling.setBase(patch.signalBase);
         if ('allowControl' in patch) core.controlChanged();
+        if ('keepAwake' in patch) keepAwake.sync();
         break;
       }
       case 'copy': clipboard.writeText(String(arg)); break;
@@ -182,7 +220,10 @@ app.whenReady().then(async () => {
   signaling = new Signaling(store.get('signalBase'));
   input = new InputInjector();
   core = new HostCore({ store, signaling, engine, input });
-  core.on('changed', pushState);
+  pauseTimer = new PauseTimer({ onResume: () => core.setSharing(true) });
+  // Hold off sleep only while sharing is on (a paused PC may sleep) and the user wants it.
+  keepAwake = new KeepAwake(powerSaveBlocker, () => !SELFTEST && store.get('sharing') && store.get('keepAwake'));
+  core.on('changed', () => { keepAwake.sync(); pushState(); });
   updates = new UpdateChecker(app.getVersion(), { repo: process.env.GLIDR_UPDATE_REPO }); // env: dev aid
   updates.on('changed', (u) => {
     pushState();
@@ -215,6 +256,10 @@ app.whenReady().then(async () => {
   tray.on('click', createUiWindow);
   tray.on('balloon-click', () => { if (updates.state.status === 'available') openLink(updates.state.download); });
   core.start();
+  keepAwake.sync();
+  // Wake from sleep and unlock: reconnect signaling at once; lock: tell the core, optionally end the session.
+  wirePower({ monitor: powerMonitor, signaling, core, store, keepAwake, pauseTimer });
+  if (app.isPackaged) { try { app.setAsDefaultProtocolClient(links.SCHEME); } catch { /* registry not writable: links just stay off */ } }
   updates.start();
   updateTray();
   if (app.isPackaged && process.platform === 'win32') {
@@ -223,7 +268,9 @@ app.whenReady().then(async () => {
       .then((fixed) => { if (fixed) console.log('[host] autostart entry repointed to this copy'); })
       .catch(() => {});
   }
-  if (!process.argv.includes('--hidden')) createUiWindow();
+  const startLink = process.argv.some(links.isLinkArg); // started by a glidr-screen:// link: act, stay in the tray
+  if (startLink) runLink(links.findLink(process.argv));
+  if (!process.argv.includes('--hidden') && !startLink) createUiWindow();
   if (process.env.GLIDR_PAIR_OUT) {
     // dev aid for end-to-end tests: open a pairing and write its link to a file
     const slot = store.createSlot(); core.refreshSlots();
@@ -236,11 +283,21 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('second-instance', () => { if (app.isReady()) createUiWindow(); });
+app.on('second-instance', (_e, argv) => {
+  if (!app.isReady() || !core) return;
+  // A link from automation does its one action and leaves the window alone; a plain second launch shows the window.
+  if (argv.some(links.isLinkArg)) runLink(links.findLink(argv)); else createUiWindow();
+});
 // Both windows show local files only: never navigate them anywhere else.
 app.on('web-contents-created', (_e, wc) => {
   wc.on('will-navigate', (e) => e.preventDefault());
   wc.on('will-redirect', (e) => e.preventDefault());
 });
 app.on('window-all-closed', () => { /* keep running in the tray */ });
-app.on('before-quit', () => { quitting = true; core?.endSession('host quit', true); });
+app.on('before-quit', () => {
+  quitting = true;
+  // A timed pause is not persisted: if the app is closed during one, sharing is on again at the next start.
+  if (pauseTimer?.active) { pauseTimer.clear(); store.set({ sharing: true }); }
+  keepAwake?.release();
+  core?.endSession('host quit', true);
+});
