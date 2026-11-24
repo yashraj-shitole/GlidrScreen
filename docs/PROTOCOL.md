@@ -60,10 +60,42 @@ Non-trickle ICE keeps a connection to **3 rendezvous messages** and the SDP in o
 
 ## Media
 
-* PC is the offerer and sends one video track; the phone is receive-only. No audio.
-* **24 fps** (`maxFramerate = 24`, capture `maxFrameRate = 24`, `degradationPreference = maintain-framerate`).
+* PC is the offerer and sends one video track; the phone is receive-only. **Audio is optional and off by default**
+  (see *Audio* below).
+* Frame rate is per session: **24 fps by default**, or what the phone asks for in `quality` (see the table below).
+  The capture `maxFrameRate`, the encoder `maxFramerate` and `degradationPreference = maintain-framerate` all follow it.
 * Codec preference H.264 (hardware encode where available), then VP8. Quality presets cap resolution/bitrate:
   `auto` 1080p / 6 Mbit/s, `low` 540p / 1.2, `balanced` 720p / 3, `high` 1440p / 9. Congestion control is WebRTC's own.
+
+### Frame rate and data saver
+
+The phone sends `{"t":"quality","p":<preset>,"fps":<n>,"saver":<bool>}`. `fps` must be 15, 24, 30 or 60; anything else
+(or a missing `fps`) means 24. The host then caps it per preset:
+
+| preset | resolution | bitrate | max fps | notes |
+|--------|-----------|---------|---------|-------|
+| `low` | 540p | 1.2 Mbit/s | 30 | 60 is clamped to 30 |
+| `balanced` | 720p | 3 Mbit/s | 60 | |
+| `auto` | 1080p | 6 Mbit/s | 60 | |
+| `high` | 1440p | 9 Mbit/s | 30 | 60 is clamped to 30 (1440p60 overloads most encoders) |
+
+* 60 fps raises the preset bitrate by 1.4x (4.2 Mbit/s for `balanced`, 8.4 for `auto`).
+* `saver: true` forces **15 fps**, halves the preset bitrate and sets the track's `contentHint` to `detail`
+  (sharpness over smoothness). Whatever `fps` was sent is ignored.
+* `contentHint` is `motion` for 24 fps and above, `detail` below that or in saver mode.
+* The effective rate is reported in `hello.fps` when the channel opens. A later `quality` message does not echo the
+  clamped value, so the phone should apply the table above (it is deterministic) or read it off the measured video.
+* A missing or unknown `p` is ignored (unknown) or keeps the current preset (missing).
+
+### Audio (optional)
+
+When the PC's `shareAudio` setting is on, the host captures system audio (Windows loopback) and adds it to the offer
+as a second `sendonly` transceiver (Opus, 48 kHz stereo, one BUNDLE transport; the data channel moves to the third
+m-section). If audio capture fails the host logs it and continues with video only. `hello.audio` is `true` only when an
+audio track really is in the offer, so a phone must look at `hello.audio` (or at the presence of an audio m-section),
+never assume it. The phone stays receive-only; muting is local. The audio section adds roughly 800 bytes of SDP, about
+350 characters to the sealed offer frame (a representative offer is 2.6 kB of the 3.9 kB limit, see
+`host/test/offer-size.test.js`). Switching the shared monitor keeps the same audio track.
 * ICE: STUN only (Google, Cloudflare). **No TURN by default**, so media never goes through a relay. A TURN server can
   be added in the host settings file (`turn`) for networks where peer-to-peer is impossible (symmetric NAT on both sides).
 
@@ -75,7 +107,10 @@ PC to phone:
 
 | message | meaning |
 |---------|---------|
-| `{"t":"hello","v":1,"host","os","fps":24,"control":bool,"quality","monitors":[Monitor],"active":id}` | sent when the channel opens |
+| `{"t":"hello","v":1,"host","os","fps":24,"control":bool,"quality","monitors":[Monitor],"active":id,"locked":bool,"audio":bool}` | sent when the channel opens. `fps` is the session's current frame rate, `locked` the PC lock state, `audio` whether system audio is in the offer. Older hosts omit `locked` / `audio` (treat as `false`) |
+| `{"t":"locked","on":bool}` | the PC was locked / unlocked during the session (a locked Windows desktop cannot be captured or controlled) |
+| `{"t":"clip","s":"<text>"}` | PC clipboard text changed. Only while the phone has `clipsync` on; text only, at most 256 KB (262144 chars), empty text is never sent, and text the phone just set is not echoed back |
+| `{"t":"cur","x":0..1,"y":0..1}` | PC cursor position, normalised inside the shared display (clamped to 0..1). Only while the phone has `curs` on, at most ~30 per second, and only when the position changed |
 | `{"t":"monitors","monitors":[...],"active":id}` | layout changed (plugged/unplugged/resolution) |
 | `{"t":"active","id","w","h"}` | the shared display changed |
 | `{"t":"thumb","id","w","h","jpg":"<base64 JPEG>"}` | preview of one monitor, every 1.5 s while requested |
@@ -98,11 +133,18 @@ Phone to PC:
 | `{"t":"text","s"}` | type Unicode text (any script, via `KEYEVENTF_UNICODE`) |
 | `{"t":"monitor","id"}` | switch the shared display (video track is replaced without renegotiation) |
 | `{"t":"thumbs","on":bool}` | start / stop monitor previews |
-| `{"t":"quality","p":"auto"/"low"/"balanced"/"high"}` | change preset |
+| `{"t":"quality","p":"auto"/"low"/"balanced"/"high","fps":15/24/30/60,"saver":bool}` | change preset; `fps` and `saver` are optional (see *Frame rate and data saver*) |
+| `{"t":"clip","s":"<text>"}` | set the PC clipboard text. Ignored when "Allow remote control" is off; text longer than 256 KB (262144 chars) or empty is dropped silently. The host never logs it |
+| `{"t":"clipsync","on":bool}` | when on, the host pushes PC clipboard text changes as `clip` (polled about every 500 ms). The current clipboard is not pushed when it is switched on, only later changes |
+| `{"t":"curs","on":bool}` | start / stop the `cur` cursor position stream (the host also stops it when the session ends) |
 | `{"t":"ping","n","ts"}` | RTT probe |
 
 Input is ignored when the PC has "Allow remote control" off (`hello.control = false`, later `control`; the phone shows *View only*).
 The pointer is confined to the shared display; buttons and keys still held when the session ends are released.
+`clip` follows the same rule; `clipsync` and `curs` only read PC state and work in view-only mode too.
+
+Unknown messages are ignored by both sides, so the protocol version stays 1: a phone talking to an older host simply
+never receives `clip`, `cur` or `locked`, and an older phone never sends the new messages.
 
 ## Security model
 
