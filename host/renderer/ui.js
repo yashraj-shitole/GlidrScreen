@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 let state = null;
 let editing = false;
-const TOGGLES = ['allowControl', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart'];
+const TOGGLES = ['allowControl', 'allowActions', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart'];
 
 const STATUS = {
   waiting: ['waiting', 'Ready'], connecting: ['connecting', 'Connecting'],
@@ -67,6 +67,7 @@ function render(s) {
   if (!picking) renderDevices(s);
   renderMonitors(s);
   renderSettings(s);
+  renderActions(s);
 }
 
 const ACCESS = [['never', 'Always'], ['1h', '1 hour'], ['1d', '1 day'], ['7d', '7 days']];
@@ -119,6 +120,67 @@ function permissionRow(d) {
   al.append(document.createTextNode('Access'), sel);
   row.append(vo, al);
   return row;
+}
+
+/** Quick actions card: the list is rebuilt only when it changed, so a click is never lost to the 1 s state push. */
+let actionsSig = '';
+const LAUNCH_ERRORS = {
+  label: 'Give it a name (up to 40 characters).',
+  path: 'That program was not found on this PC. Use a full path to an existing .exe, .bat, .cmd or .lnk, or an https:// link.',
+  url: 'Only plain https:// links are allowed.',
+  args: 'Too many arguments, or one is too long.',
+  batch: 'Batch files take plain arguments only (letters, digits and . _ : / \\ @ + -) and cannot have special characters in their path.',
+  full: 'The limit of 12 launchers is reached. Remove one first.',
+  invalid: 'Something was missing.',
+  id: 'Could not create the launcher. Try again.',
+};
+const ACTION_NOTES = {
+  restart: 'Restarts after 15 seconds. The phone asks to confirm first. Off until you switch it on',
+  shutdown: 'Shuts down after 15 seconds. The phone asks to confirm first. Off until you switch it on',
+};
+
+function actionRow(it, extra) {
+  const li = document.createElement('li');
+  const left = document.createElement('div');
+  const name = document.createElement('div');
+  name.className = 'name';
+  const nameEl = document.createElement('span');
+  nameEl.textContent = it.label;
+  name.append(nameEl);
+  left.append(name);
+  if (extra) { const sm = document.createElement('small'); sm.textContent = extra; sm.title = extra; left.append(sm); }
+  const cb = document.createElement('input');
+  cb.type = 'checkbox'; cb.className = 'switch'; cb.checked = !!it.enabled;
+  cb.setAttribute('aria-label', 'Allow ' + it.label);
+  cb.onchange = () => window.glidr.act('actionToggle', { id: it.id, on: cb.checked });
+  li.append(left, cb);
+  return li;
+}
+
+function renderActions(s) {
+  const a = s.actions;
+  if (!a) return;
+  const sig = JSON.stringify([s.settings.allowActions, a]);
+  if (sig === actionsSig) return;
+  actionsSig = sig;
+  $('actionsBody').classList.toggle('off', !s.settings.allowActions);
+  $('actionList').innerHTML = '';
+  for (const it of a.items) {
+    if (it.implicit || !it.builtin) continue; // cancel follows restart / shut down; launchers have their own list
+    $('actionList').append(actionRow(it, ACTION_NOTES[it.id]));
+  }
+  $('launcherList').innerHTML = '';
+  for (const l of a.launchers) {
+    const it = a.items.find((x) => x.id === l.id) || { id: l.id, label: l.label, enabled: false };
+    const li = actionRow(it, l.path + (l.args.length ? ' ' + l.args.join(' ') : ''));
+    const rm = document.createElement('button');
+    rm.className = 'ghost danger'; rm.textContent = 'Remove';
+    rm.onclick = () => { if (confirm(`Remove the launcher ${l.label}?`)) window.glidr.act('launcherRemove', { id: l.id }); };
+    li.insertBefore(rm, li.lastChild);
+    $('launcherList').append(li);
+  }
+  $('noLaunchers').classList.toggle('hidden', a.launchers.length > 0);
+  $('lnAdd').disabled = a.launchers.length >= a.max;
 }
 
 function renderMonitors(s) {
@@ -176,6 +238,18 @@ $('diagnose').onclick = async () => {
     $('diagResults').append(li);
   }
   btn.disabled = false; btn.textContent = 'Test connection';
+};
+$('lnPick').onclick = async () => {
+  const p = await window.glidr.act('launcherPick');
+  if (typeof p === 'string' && p) $('lnPath').value = p;
+};
+$('lnAdd').onclick = async () => {
+  $('lnError').textContent = '';
+  const r = await window.glidr.act('launcherAdd', { label: $('lnLabel').value, path: $('lnPath').value, args: $('lnArgs').value });
+  if (r && r.ok) {
+    for (const id of ['lnLabel', 'lnPath', 'lnArgs']) $(id).value = '';
+    $('lnError').textContent = 'Added. Switch it on in the list to let the phone use it.';
+  } else $('lnError').textContent = LAUNCH_ERRORS[r && r.error] || 'Could not add it.';
 };
 $('cancelPairing').onclick = () => window.glidr.act('cancelPairing');
 /** Briefly shows [text] in [el], then puts the original text back. */

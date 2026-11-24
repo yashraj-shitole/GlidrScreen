@@ -337,6 +337,63 @@ Rules the host enforces:
 * The PC shows a tray notification "Received <name> from <phone>". File names, contents and hashes are not logged
   (except at debug level).
 
+## Quick actions
+
+From the phone's menu the PC can be locked, put to sleep, restarted or shut down, and launchers the PC owner prepared
+can be started, without navigating the remote desktop. This is remote command execution by design, so it is **off by
+default** and built so the phone can only *pick* from a list the PC owns. Older hosts ignore `action` (the phone sees no
+`actions` in `hello` and shows no chip); older phones never send it.
+
+Messages on `ctl`:
+
+| message | direction | meaning |
+|---------|-----------|---------|
+| `hello.actions` = `[{"id","label","danger":bool}]` | PC to phone | the actions the phone may use right now: only the enabled ones, **empty** when the master switch is off, when "Allow remote control" is off or when this phone is view only. Missing = not supported. `id` is 1..24 characters of `a-z 0-9 -` |
+| `{"t":"actions","list":[...]}` | PC to phone | the same list again, whenever the PC owner changes the master switch, the enabled list or the launchers (or control is switched) during a session |
+| `{"t":"action","id":"<id>","confirm":true\|false}` | phone to PC | run the action with this id. `confirm` is optional (false); only `true` counts |
+| `{"t":"action-result","id","ok":bool,"reason"}` | PC to phone | the answer. `ok:true`: the process was started (the PC does not wait for it to finish). `reason` when `ok:false`: `disabled`, `unknown`, `view-only`, `rate`, `confirm` or `failed` |
+
+**The phone never sends a command, a path or an argument, only an id.** The PC looks the id up in its own list. A
+message whose `id` is not a string of the allowed shape, or that is not an object, is ignored without a reply; a
+well-formed id the PC does not have (a launcher removed while the phone still shows it) gets `unknown`. Nothing else in
+the message is read.
+
+Built-in actions (fixed ids, fixed argument lists, started with `shell:false` from `System32`, no string building):
+
+| id | label | what runs | default |
+|----|-------|-----------|---------|
+| `lock` | Lock PC | `rundll32.exe user32.dll,LockWorkStation` | on |
+| `sleep` | Sleep | `rundll32.exe powrprof.dll,SetSuspendState 0,1,0` | on |
+| `restart` | Restart PC | `shutdown.exe /r /t 15 /c "Glidr Screen"` | **off**, danger |
+| `shutdown` | Shut down PC | `shutdown.exe /s /t 15 /c "Glidr Screen"` | **off**, danger |
+| `cancel-shutdown` | Cancel shutdown | `shutdown.exe /a` | on whenever `restart` or `shutdown` is on |
+
+Rules the host enforces, in this order, on every `action`:
+
+1. **Known id**, else `unknown` (or ignored, see above).
+2. **Master switch** `allowActions` (default **false**) and the action individually enabled by the PC owner, else
+   `disabled`. When the master switch is first turned on only `lock` and `sleep` are enabled; `restart`, `shutdown` and
+   every launcher must be switched on one by one in the PC app.
+3. **Control**: the PC-wide "Allow remote control" must be on and the phone must not be view only, else `view-only`.
+4. **Danger** (`restart`, `shutdown`) needs `confirm:true`, else `confirm` and nothing runs. The phone shows its own
+   confirmation first. Both start after a **15 s delay** so the PC owner can cancel at the PC (`shutdown /a`), and
+   `cancel-shutdown` is available to the phone too. A refused request does not use up the rate limit.
+5. **Rate limit**, per paired phone and kept across reconnects: at most one action per **2 s** and **6 per minute**,
+   else `rate`.
+6. The process is started detached, without a shell, and not waited for; if it cannot be started the answer is `failed`.
+
+**Launchers** are defined **only in the PC app** (never by the phone): up to **12** entries `{id, label, path, args[]}`.
+The host generates the `id` (8 lower-case hex digits). `path` is an existing local `.exe`, `.bat`, `.cmd` or `.lnk` file
+on a drive letter (no UNC or device paths), or an `https://` URL (no credentials; a URL takes no arguments). Arguments are
+stored and passed as an **array**, one string per argument (limits: 16 arguments of at most 512 characters, label at most
+40): a path or argument containing `&`, `;`, `|`, `$()`, quotes or `%VAR%` reaches the program as that single argument
+and no shell ever sees it. `.exe` is started directly, `.lnk` and URLs are opened with `explorer.exe`. `.bat` / `.cmd`
+go through `cmd.exe /d /c <path> <args>`, which parses its own command line, so they are only accepted when the path has
+no cmd special characters and every argument is plain (`A-Za-z0-9 . _ : \ / @ + -`, no spaces). New launchers start
+switched off. Launcher paths and arguments are never sent to the phone (only `id`, `label`, `danger:false`).
+
+The host logs only the action id and the outcome (at debug level), never a path or an argument.
+
 ## Security model
 
 * Possession of the 128-bit pairing key is the only credential. It is created on the PC, shown on the PC screen, and

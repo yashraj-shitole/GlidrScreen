@@ -7,6 +7,7 @@ const { ClipboardSync, CursorStream } = require('./sync');
 const permissions = require('./permissions');
 const { FileReceiver, cleanStaleParts } = require('./files');
 const Windows = require('./windows');
+const Actions = require('./actions');
 const path = require('path');
 
 const MAX_TIMER_MS = 2 ** 31 - 1; // setTimeout fires at once above this
@@ -37,8 +38,10 @@ class HostCore extends EventEmitter {
    * @param filesDir optional () => string (tests): where received files are saved; defaults to Downloads\Glidr
    * @param windowRect optional (hwnd) => {x,y,w,h,iconic}|null (tests): defaults to input.windowRect (GetWindowRect via koffi)
    * @param focusWindow optional (hwnd) => bool (tests): defaults to input.focusWindow
+   * @param runAction optional ({file,args,opts}) => Promise (tests): runs a quick action; defaults to a detached shell-less spawn
+   * @param actionClock optional () => ms (tests): the quick-action rate limiter's clock
    */
-  constructor({ store, signaling, engine, input, clipboard, cursorPos, filesDir, windowRect, focusWindow }) {
+  constructor({ store, signaling, engine, input, clipboard, cursorPos, filesDir, windowRect, focusWindow, runAction, actionClock }) {
     super();
     this.store = store;
     this.sig = signaling;
@@ -49,6 +52,9 @@ class HostCore extends EventEmitter {
     this.filesDir = filesDir || defaultFilesDir;
     this.windowRectFn = windowRect || defaultWindowRect;
     this.focusWindowFn = focusWindow || defaultFocusWindow;
+    this.runActionFn = runAction || null; // created on first use: nothing spawns unless an action really runs
+    this.actionClock = actionClock || Date.now;
+    this.actionLimiters = new Map(); // slot id -> RateLimiter (kept across reconnects, so reconnecting does not reset it)
     this.locked = false;
     this.sess = null;
     this.seen = new Set();
@@ -252,8 +258,40 @@ class HostCore extends EventEmitter {
       t: 'hello', v: PROTOCOL, host: this.store.get('hostName'), os: 'Windows', fps: s.fps,
       control: this.#canControl(s), quality: s.quality,
       monitors: displays.list(), active: s.monitorId,
-      locked: this.locked, audio: s.audio,
+      locked: this.locked, audio: s.audio, actions: this.#actionList(s),
     });
+  }
+
+  // -------------------------------------------------------------- quick actions (see actions.js)
+
+  #actionCfg() {
+    return {
+      allowActions: this.store.get('allowActions'), allowControl: this.store.get('allowControl'),
+      actionsEnabled: this.store.get('actionsEnabled'), launchers: this.store.get('launchers'),
+    };
+  }
+
+  /** What this phone may see: nothing while the master switch is off or the phone cannot control (view only). */
+  #actionList(s) {
+    return this.#canControl(s) ? Actions.phoneList(this.#actionCfg()) : [];
+  }
+
+  /** The PC owner changed the quick actions (master switch, enabled list or launchers): the live phone gets the new list. */
+  actionsChanged() {
+    const s = this.sess;
+    if (s?.live) this.#send({ t: 'actions', list: this.#actionList(s) });
+  }
+
+  async #runAction(s, m) {
+    let limiter = this.actionLimiters.get(s.slotId);
+    if (!limiter) { limiter = new Actions.RateLimiter(this.actionClock); this.actionLimiters.set(s.slotId, limiter); }
+    if (!this.runActionFn) this.runActionFn = Actions.spawnRunner();
+    // Only the id and the outcome are logged (and only when GLIDR_DEBUG is set), never a path or an argument.
+    const res = await Actions.handle(m, {
+      cfg: this.#actionCfg(), slot: this.store.slot(s.slotId), limiter, run: this.runActionFn,
+      log: (line) => { if (process.env.GLIDR_DEBUG) this.emit('log', line); },
+    });
+    if (res && this.sess === s) this.#send({ t: 'action-result', ...res });
   }
 
   /** PC lock state (wired to powerMonitor lock/unlock in main.js). Tells a live phone straight away. */
@@ -357,6 +395,7 @@ class HostCore extends EventEmitter {
       case 'clipsync': if (s.live) this.#clipSync(s).setOn(m.on === true); break;
       case 'curs': this.#cursorStream(m.on === true); break;
       case 'file-offer': if (s.live) this.#fileOffer(s, m); break; // never log the name
+      case 'action': if (s.live) await this.#runAction(s, m); break; // the phone sends an id only; see actions.js
       case 'mv': if (control) this.input.moveBy(+m.dx || 0, +m.dy || 0); break;
       case 'abs': if (control) this.input.moveNorm(+m.x || 0, +m.y || 0); break;
       case 'btn': if (control) this.input.button(m.b, m.a); break;
@@ -511,6 +550,7 @@ class HostCore extends EventEmitter {
     const on = this.#canControl(s);
     if (!on) { this.input.reset(); s.files?.abort('control switched off', true); } // release anything the phone was holding
     this.#send({ t: 'control', on });
+    this.#send({ t: 'actions', list: this.#actionList(s) }); // quick actions need control too
   }
 
   #thumbs(on) {

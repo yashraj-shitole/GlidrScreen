@@ -60,3 +60,8 @@ footer { text-align: center; } a { color: var(--dim); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 .update { border-color: var(--accent); } .update small { display: block; color: var(--dim); font-size: 12px; font-weight: 500; }
 button.primary.auto { width: auto; padding: 10px 16px; flex: none; }
+.actions li { gap: 10px; flex-wrap: nowrap; } .actions li > div { min-width: 0; } .actions .name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions li button { margin-left: 0; }
+#actionsBody.off #actionList, #actionsBody.off #launcherForm { opacity: .5; }
+textarea { background: var(--s2); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font: inherit; resize: vertical; }

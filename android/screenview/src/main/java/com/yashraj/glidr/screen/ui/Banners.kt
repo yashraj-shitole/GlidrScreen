@@ -35,6 +35,7 @@ import com.yashraj.glidr.screen.net.ScreenClient
 class ViewerExtras {
     var clipboardOpen by mutableStateOf(false)
     var sendOpen by mutableStateOf(false)
+    var actionsOpen by mutableStateOf(false)
 }
 
 @Composable
@@ -86,6 +87,7 @@ fun BoxScope.ViewerVideoOverlays(client: ScreenClient, zoom: VideoViewState, ext
     ) {
         OverlayChip(ExtraIco.Clipboard, "Clipboard") { extras.clipboardOpen = true }
         OverlayChip(ExtraIco.Send, "Send file to PC") { extras.sendOpen = true }
+        QuickActionsChip(client) { extras.actionsOpen = true } // only when the PC offers quick actions
         if (zoom.zoomed) {
             OverlayChip(ExtraIco.Pointer, if (zoom.followCursor) "Follow pointer, on" else "Follow pointer, off", zoom.followCursor, "Follow pointer") {
                 zoom.followCursor = !zoom.followCursor
@@ -116,5 +118,9 @@ fun ViewerExtraSheets(client: ScreenClient, extras: ViewerExtras) {
     if (extras.sendOpen) {
         BackHandler { extras.sendOpen = false }
         SendFileSheet(client, shares) { extras.sendOpen = false }
+    }
+    if (extras.actionsOpen) {
+        BackHandler { extras.actionsOpen = false }
+        QuickActionsSheet(client) { extras.actionsOpen = false }
     }
 }

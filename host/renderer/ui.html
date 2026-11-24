@@ -60,6 +60,26 @@
     <p class="dim small" id="monitorsHint">Your phone chooses which display to view. The one it is viewing is outlined.</p>
   </section>
 
+  <section class="card" id="actionsCard">
+    <h2>Quick actions</h2>
+    <label class="row between"><span>Allow quick actions from the phone<small>Lock, sleep, restart and the launchers below, from the phone's menu. Off by default. Needs remote control on and a phone that is not view only</small></span><input type="checkbox" id="allowActions" class="switch"></label>
+    <div id="actionsBody">
+      <p class="dim small" id="actionsHint">The phone only picks an action from this list; it can never send a command. Restart and shut down start after 15 seconds and can be cancelled here or from the phone.</p>
+      <ul id="actionList" class="list actions"></ul>
+      <details id="launcherForm">
+        <summary>Launchers (programs and links the phone may start)</summary>
+        <ul id="launcherList" class="list actions"></ul>
+        <p id="noLaunchers" class="dim small">No launchers yet.</p>
+        <label class="col"><span>Name</span><input type="text" id="lnLabel" maxlength="40" placeholder="Open my notes"></label>
+        <label class="col"><span>Program (.exe, .bat, .cmd, .lnk) or a link starting with https://</span><input type="text" id="lnPath" spellcheck="false" maxlength="2000"></label>
+        <button id="lnPick" class="ghost wide">Choose a program...</button>
+        <label class="col"><span>Arguments<small>One per line. Passed as they are, never through a shell. Batch files accept plain arguments only</small></span><textarea id="lnArgs" rows="2" spellcheck="false"></textarea></label>
+        <button id="lnAdd" class="ghost wide">Add launcher</button>
+        <p class="dim small" id="lnError"></p>
+      </details>
+    </div>
+  </section>
+
   <section class="card">
     <h2>Settings</h2>
     <label class="row between"><span>Sharing<small>Accept connections from paired phones</small></span><input type="checkbox" id="sharing" class="switch"></label>

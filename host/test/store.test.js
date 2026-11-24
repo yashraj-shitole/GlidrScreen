@@ -127,4 +127,21 @@ const readFile = (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'settings.js
   assert.strictEqual(c.data.slots[0].key, s1.key);
 }
 
+// quick actions settings: off by default, malformed stored launchers are dropped on load
+{
+  const dir = tmp();
+  const a = new Store(dir, { safeStorage: null });
+  assert.strictEqual(a.get('allowActions'), false);
+  assert.strictEqual(a.get('actionsEnabled'), null);
+  assert.deepStrictEqual(a.get('launchers'), []);
+  fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({
+    allowActions: 'yes', actionsEnabled: 'all',
+    launchers: [{ id: 'aaaaaaaa', label: 'ok', path: 'https://example.com', args: [] }, { id: '../x', label: 'bad', path: 'p', args: [] }, { id: 'bbbbbbbb', label: 'bad', path: 'p', args: 'x' }],
+  }));
+  const b = new Store(dir, { safeStorage: null });
+  assert.strictEqual(b.get('allowActions'), false); // only a real true turns it on
+  assert.strictEqual(b.get('actionsEnabled'), null);
+  assert.deepStrictEqual(b.get('launchers').map((l) => l.id), ['aaaaaaaa']);
+}
+
 console.log('ok');
