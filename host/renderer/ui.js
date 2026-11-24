@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 let state = null;
 let editing = false;
-const TOGGLES = ['allowControl', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart'];
+const TOGGLES = ['allowControl', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart'];
 
 const STATUS = {
   waiting: ['waiting', 'Ready'], connecting: ['connecting', 'Connecting'],

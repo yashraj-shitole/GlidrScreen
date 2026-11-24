@@ -1,8 +1,10 @@
 package com.yashraj.glidr.screen.net
 
+import android.content.ContentResolver
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
@@ -160,6 +162,12 @@ class ScreenClient(
     @Volatile private var wasLive = false
     private var pcon: PeerConnection? = null
     @Volatile private var dc: DataChannel? = null
+    /** The `files` channel (file transfer to the PC); null until it arrives, and for PCs that have none. */
+    @Volatile private var filesDc: DataChannel? = null
+    private val roomSignal = Channel<Unit>(Channel.CONFLATED)
+    private val files = FileSender(scope, { fileLink() })
+    /** Files being sent to the PC (see [sendFiles]): name, progress and result of each. */
+    val fileTransfers: StateFlow<FileQueueState> = files.state
     @Volatile private var wantThumbs = false
     private var pingN = 0
 
@@ -381,6 +389,8 @@ class ScreenClient(
         val peer = pcon
         pcon = null
         dc = null
+        filesDc = null
+        files.linkClosed()
         _video.value = null
         _stats.value = null
         _rtt.value = null
@@ -429,18 +439,34 @@ class ScreenClient(
             override fun onRemoveStream(s: MediaStream?) {}
             override fun onRenegotiationNeeded() {}
             override fun onDataChannel(ch: DataChannel) {
-                dc = ch
-                ch.registerObserver(object : DataChannel.Observer {
-                    override fun onBufferedAmountChange(previous: Long) {}
-                    override fun onStateChange() {
-                        if (ch.state() == DataChannel.State.CLOSED) ended.complete("channel closed")
+                // The PC opens two channels: "ctl" (JSON control) and "files" (file transfer). Route by label.
+                when (ch.label()) {
+                    "ctl" -> {
+                        dc = ch
+                        ch.registerObserver(object : DataChannel.Observer {
+                            override fun onBufferedAmountChange(previous: Long) {}
+                            override fun onStateChange() {
+                                if (ch.state() == DataChannel.State.CLOSED) ended.complete("channel closed")
+                            }
+                            override fun onMessage(buffer: DataChannel.Buffer) {
+                                if (buffer.binary) return
+                                val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
+                                handleCtl(String(bytes, Charsets.UTF_8))
+                            }
+                        })
                     }
-                    override fun onMessage(buffer: DataChannel.Buffer) {
-                        if (buffer.binary) return
-                        val bytes = ByteArray(buffer.data.remaining()).also { buffer.data.get(it) }
-                        handleCtl(String(bytes, Charsets.UTF_8))
+                    "files" -> {
+                        filesDc = ch
+                        ch.registerObserver(object : DataChannel.Observer {
+                            override fun onBufferedAmountChange(previous: Long) { roomSignal.trySend(Unit) }
+                            override fun onStateChange() {
+                                if (ch.state() == DataChannel.State.CLOSED) files.linkClosed()
+                            }
+                            override fun onMessage(buffer: DataChannel.Buffer) {} // the PC sends nothing on it
+                        })
                     }
-                })
+                    else -> {} // a channel from a newer PC: ignore
+                }
             }
             override fun onConnectionChange(s: PeerConnection.PeerConnectionState) {
                 when (s) {
@@ -579,6 +605,7 @@ class ScreenClient(
                     _thumbs.update { it + (m.optLong("id") to bmp) }
                 }
             }
+            "file-accept", "file-reject", "file-done" -> FileMsg.parse(m)?.let(files::onReply)
             "pong" -> _rtt.value = (System.currentTimeMillis() - m.optLong("ts")).toInt().coerceAtLeast(0)
             else -> when (val ev = HostEvents.parse(m)) {
                 is HostEvent.Locked -> _locked.value = ev.on
@@ -698,6 +725,44 @@ class ScreenClient(
         wantCursor = on
         if (!on) _cursor.value = null
         send(Msg.curs(on))
+    }
+
+    // ------------------------------------------------------------------ files to the PC
+
+    /**
+     * Sends the file at [uri] to the PC (its Downloads\Glidr folder). It is queued behind anything already being sent;
+     * progress and the PC's answer are in [fileTransfers]. Nothing is read from [uri] until the PC accepted the offer.
+     */
+    fun sendFile(resolver: ContentResolver, uri: Uri) = sendFiles(resolver, listOf(uri))
+
+    /** Queues several files, see [sendFile]. Only `content://` URIs are read. */
+    fun sendFiles(resolver: ContentResolver, uris: List<Uri>) {
+        val readable = uris.filter { UriFileSource.isReadable(it) }.take(FileLimits.MAX_QUEUED)
+        if (readable.isEmpty()) return
+        // name and size (metadata) are read off the main thread; the content only later, by the sender
+        scope.launch(Dispatchers.IO) { files.enqueue(readable.map { UriFileSource(resolver, it) }) }
+    }
+
+    /** Stops the file being sent and drops the ones waiting. */
+    fun cancelFiles() = files.cancel()
+
+    /** Empties the finished list in the send sheet. */
+    fun clearFiles() = files.clear()
+
+    private fun fileLink(): FileLink? {
+        val c = dc ?: return null
+        if (c.state() != DataChannel.State.OPEN) return null
+        val f = filesDc
+        return object : FileLink {
+            override val supported get() = f != null
+            override val isOpen get() = c.state() == DataChannel.State.OPEN && f?.state() == DataChannel.State.OPEN
+            override fun sendCtl(msg: JSONObject) = send(msg)
+            override fun sendText(text: String) = f?.send(DataChannel.Buffer(ByteBuffer.wrap(text.toByteArray()), false)) ?: false
+            override fun sendBinary(data: ByteArray, length: Int) =
+                f?.send(DataChannel.Buffer(ByteBuffer.wrap(data.copyOf(length)), true)) ?: false
+            override fun bufferedAmount() = f?.bufferedAmount() ?: 0L
+            override suspend fun awaitRoom() { withTimeoutOrNull(100) { roomSignal.receive() } }
+        }
     }
 
     /** Silences (or restores) the PC audio on this phone only. */
