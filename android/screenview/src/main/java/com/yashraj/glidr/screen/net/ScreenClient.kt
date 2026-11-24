@@ -19,8 +19,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -31,6 +35,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 import org.webrtc.DataChannel
 import org.webrtc.IceCandidate
+import org.webrtc.AudioTrack
 import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
@@ -100,6 +105,38 @@ class ScreenClient(
     private val _videoSize = MutableStateFlow(0 to 0)
     /** Decoded video size in pixels (0 to 0 until the first frame). */
     val videoSize: StateFlow<Pair<Int, Int>> = _videoSize.asStateFlow()
+
+    private val _locked = MutableStateFlow(false)
+    /** True while the PC is locked (the lock screen cannot be captured or controlled). Reset when the session ends. */
+    val hostLocked: StateFlow<Boolean> = _locked.asStateFlow()
+    private val _cursor = MutableStateFlow<Pair<Float, Float>?>(null)
+    /** PC pointer position, 0..1 inside the shared display; null until the first `cur` after [setCursorStream] is on. */
+    val cursor: StateFlow<Pair<Float, Float>?> = _cursor.asStateFlow()
+    private val _incomingClip = MutableSharedFlow<String>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    /** Every text the PC pushed (only while [clipboardSync] is on). Never logged. */
+    val incomingClipboard: SharedFlow<String> = _incomingClip.asSharedFlow()
+    private val _lastClip = MutableStateFlow<String?>(null)
+    /** The newest text received from the PC, kept in memory only until the session ends. */
+    val lastPcClipboard: StateFlow<String?> = _lastClip.asStateFlow()
+    private val _clipSync = MutableStateFlow(false)
+    /** What the phone asked for with [setClipboardSync]; asked again after a reconnect. */
+    val clipboardSync: StateFlow<Boolean> = _clipSync.asStateFlow()
+    private val _audioActive = MutableStateFlow(false)
+    /** True while the PC is sharing audio and its track arrived. */
+    val audioActive: StateFlow<Boolean> = _audioActive.asStateFlow()
+    private val _audioMuted = MutableStateFlow(false)
+    /** The phone's own mute switch for the PC audio. Kept across reconnects. */
+    val audioMuted: StateFlow<Boolean> = _audioMuted.asStateFlow()
+    private val _fps = MutableStateFlow(DEFAULT_FPS)
+    /** Frame rate the PC streams at, from `hello` or the last [setStreamQuality]. */
+    val fps: StateFlow<Int> = _fps.asStateFlow()
+    private val _saver = MutableStateFlow(false)
+    /** Data saver as last asked for with [setStreamQuality]. */
+    val dataSaver: StateFlow<Boolean> = _saver.asStateFlow()
+    @Volatile private var audioTrack: AudioTrack? = null
+    @Volatile private var wantCursor = false
+    /** The stream settings the user picked this session; re-sent after a reconnect, null until they pick one. */
+    @Volatile private var chosenStream: Triple<Quality, Int?, Boolean?>? = null
 
     private val _diag = MutableStateFlow("")
     /** One line of connection diagnostics (candidate types, ICE state), shown while connecting. */
@@ -334,6 +371,11 @@ class ScreenClient(
         _stats.value = null
         _rtt.value = null
         _switching.value = false
+        _locked.value = false
+        _cursor.value = null
+        _lastClip.value = null
+        _audioActive.value = false
+        audioTrack = null
         if (peer != null) {
             // give the renderer a moment to detach its sink before the native objects go away
             CoroutineScope(Dispatchers.Default).launch {
@@ -404,6 +446,11 @@ class ScreenClient(
             override fun onTrack(t: RtpTransceiver) {
                 val track = t.receiver.track()
                 if (track is VideoTrack) _video.value = track
+                if (track is AudioTrack) {
+                    track.setEnabled(!_audioMuted.value)
+                    audioTrack = track
+                    _audioActive.value = true
+                }
             }
         }
         return factory.createPeerConnection(cfg, observer) ?: throw Exception("WebRTC is unavailable on this device")
@@ -496,6 +543,11 @@ class ScreenClient(
                 _control.value = m.optBoolean("control", true)
                 _quality.value = Quality.of(m.optString("quality"))
                 applyHostName(m.optString("host"))
+                val extras = HostEvents.helloExtras(m)
+                extras.locked?.let { _locked.value = it }
+                extras.fps?.let { _fps.value = it }
+                if (extras.audio == false) _audioActive.value = false
+                resendWishes()
             }
             "monitors" -> {
                 _monitors.value = Monitor.parseAll(m.optJSONArray("monitors"))
@@ -514,6 +566,23 @@ class ScreenClient(
                 }
             }
             "pong" -> _rtt.value = (System.currentTimeMillis() - m.optLong("ts")).toInt().coerceAtLeast(0)
+            else -> when (val ev = HostEvents.parse(m)) {
+                is HostEvent.Locked -> _locked.value = ev.on
+                is HostEvent.Cursor -> if (wantCursor) _cursor.value = ev.x to ev.y
+                is HostEvent.Clip -> if (_clipSync.value) { _lastClip.value = ev.text; _incomingClip.tryEmit(ev.text) }
+                null -> {}
+            }
+        }
+    }
+
+    /** A new data channel starts from the host's defaults, so ask again for what the user switched on. */
+    private fun resendWishes() {
+        if (wantCursor) send(Msg.curs(true))
+        if (_clipSync.value) send(Msg.clipsync(true))
+        chosenStream?.let { (q, fps, saver) ->
+            _quality.value = q
+            fps?.let { _fps.value = it }
+            send(Msg.quality(q, fps, saver))
         }
     }
 
@@ -566,7 +635,48 @@ class ScreenClient(
 
     fun setQuality(q: Quality) {
         _quality.value = q
-        send(Msg.quality(q))
+        val prev = chosenStream
+        chosenStream = Triple(q, prev?.second, prev?.third)
+        send(Msg.quality(q, prev?.second, prev?.third))
+    }
+
+    /** Quality preset plus frame rate (one of [FPS_OPTIONS]) and data saver in one message. */
+    fun setStreamQuality(q: Quality, fps: Int, saver: Boolean) {
+        val f = if (fps in FPS_OPTIONS) fps else DEFAULT_FPS
+        _quality.value = q
+        _fps.value = f
+        _saver.value = saver
+        chosenStream = Triple(q, f, saver)
+        send(Msg.quality(q, f, saver))
+    }
+
+    /**
+     * Puts [text] on the PC clipboard. Text over [ClipLimits] is cut first (the caller tells the user, see
+     * [ClipLimits.cap]). Returns false when nothing was sent. The text is never logged.
+     */
+    fun sendClipboard(text: String): Boolean {
+        val capped = ClipLimits.cap(text).text
+        return capped.isNotEmpty() && send(Msg.clip(capped))
+    }
+
+    /** Ask the PC to push its clipboard text changes while [on]. */
+    fun setClipboardSync(on: Boolean) {
+        _clipSync.value = on
+        if (!on) _lastClip.value = null
+        send(Msg.clipsync(on))
+    }
+
+    /** Start or stop the PC cursor position stream. Turn it off whenever nothing uses it. */
+    fun setCursorStream(on: Boolean) {
+        wantCursor = on
+        if (!on) _cursor.value = null
+        send(Msg.curs(on))
+    }
+
+    /** Silences (or restores) the PC audio on this phone only. */
+    fun setAudioMuted(muted: Boolean) {
+        _audioMuted.value = muted
+        runCatching { audioTrack?.setEnabled(!muted) }
     }
 
     // ------------------------------------------------------------------ network changes

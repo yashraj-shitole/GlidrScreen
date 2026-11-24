@@ -267,7 +267,7 @@ fun SettingsSheet(
         Column(Modifier.heightIn(max = maxScroll).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Label("Stream quality", color = c.dim, style = Gs.type.small)
             Segmented(Quality.entries.map { it.label }, quality.ordinal, { client.setQuality(Quality.entries[it]) })
-            Label("Always 24 fps. This caps the resolution and bitrate sent from the PC.", color = c.dim, style = Gs.type.small)
+            StreamTuning(client) // HOOK: quality caption, frame rate and data saver (replaces the fixed "Always 24 fps" caption)
 
             Label("Profile for this PC", color = c.dim, style = Gs.type.small)
             Segmented(InputProfile.entries.map { it.label }, prefs.matchingProfile()?.ordinal ?: -1, { i -> onPrefs { it.withProfile(InputProfile.entries[i]) } })

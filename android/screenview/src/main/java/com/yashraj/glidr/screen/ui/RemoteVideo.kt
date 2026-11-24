@@ -12,12 +12,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -38,6 +41,7 @@ import kotlin.math.hypot
 
 private const val MAX_ZOOM = 5f
 private const val LONG_PRESS_MS = 450L
+private const val FOLLOW_FRAMES = 12
 
 /** Shared zoom / pan state of the picture. */
 class VideoViewState {
@@ -46,6 +50,16 @@ class VideoViewState {
     var panY by mutableFloatStateOf(0f)
     fun reset() { zoom = 1f; panX = 0f; panY = 0f }
     val zoomed get() = zoom > 1.01f
+
+    /** "Follow pointer": while zoomed, the view pans after the PC cursor ([CursorFollow]). Off by default. */
+    var followCursor by mutableStateOf(false)
+
+    /** Uptime (ms) until which following is paused because the user just panned or pinched by hand. */
+    var followPausedUntil = 0L
+        private set
+
+    /** Called on every manual pan or pinch. */
+    fun pauseFollow(now: Long = SystemClock.uptimeMillis()) { followPausedUntil = now + CursorFollow.PAUSE_MS }
 }
 
 /**
@@ -91,6 +105,29 @@ fun RemoteVideo(
     }
     DisposableEffect(Unit) {
         onDispose { Handler(Looper.getMainLooper()).post { renderer.release() } }
+    }
+
+    // Follow pointer: the PC only streams its cursor while this is on and the picture is zoomed.
+    val followOn = state.followCursor && state.zoomed
+    val cursor by client.cursor.collectAsState()
+    DisposableEffect(client, followOn) {
+        if (followOn) client.setCursorStream(true)
+        onDispose { if (followOn) client.setCursorStream(false) }
+    }
+    LaunchedEffect(cursor, followOn) {
+        val cur = cursor ?: return@LaunchedEffect
+        if (!followOn) return@LaunchedEffect
+        // a few animation frames per cursor update ease the view over; a new update restarts this loop
+        repeat(FOLLOW_FRAMES) {
+            if (CursorFollow.paused(SystemClock.uptimeMillis(), state.followPausedUntil)) return@LaunchedEffect
+            val (px, py) = CursorFollow.followPan(
+                cur.first, cur.second, container.width.toFloat(), container.height.toFloat(), vs.first, vs.second,
+                state.zoom, state.panX, state.panY,
+            )
+            if (px == state.panX && py == state.panY) return@LaunchedEffect
+            state.panX = px; state.panY = py
+            withFrameNanos { }
+        }
     }
 
     Box(modifier.onSizeChanged { container = it }) {
@@ -151,6 +188,7 @@ fun RemoteVideo(
                                 state.zoom = nz
                             }
                             lastSpan = span
+                            state.pauseFollow()
                             val d0 = pressed[0].positionChange(); val d1 = pressed[1].positionChange()
                             state.panX += (d0.x + d1.x) / 2f; state.panY += (d0.y + d1.y) / 2f
                             clampPan(state, container)
@@ -172,6 +210,7 @@ fun RemoteVideo(
                                 }
                                 ch.consume()
                             } else if (state.zoomed && moved) {
+                                state.pauseFollow()
                                 state.panX += d.x; state.panY += d.y
                                 clampPan(state, container)
                                 ch.consume()

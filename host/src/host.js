@@ -2,12 +2,17 @@
 // Core host logic: pairing slots -> signaling -> one WebRTC session -> remote control. No Electron UI here.
 const { EventEmitter } = require('events');
 const displays = require('./displays');
+const media = require('./media');
+const { ClipboardSync, CursorStream } = require('./sync');
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const DISCONNECT_GRACE_MS = 10_000;
 const MAX_REQ_AGE_MS = 90_000;
 const PROTOCOL = 1;
-const QUALITIES = new Set(['auto', 'low', 'balanced', 'high']);
+
+// Electron's clipboard and the koffi-backed cursor reader are required lazily so unit tests can load this file.
+const defaultClipboard = () => require('electron').clipboard;
+const defaultCursorPos = () => require('./input').InputInjector.cursorPos();
 
 class HostCore extends EventEmitter {
   /**
@@ -15,13 +20,18 @@ class HostCore extends EventEmitter {
    * @param signaling Signaling
    * @param engine {send(cmd)} bridge to the engine window
    * @param input InputInjector
+   * @param clipboard optional {readText, writeText} (tests); defaults to Electron's clipboard
+   * @param cursorPos optional () => {x,y} (tests); defaults to InputInjector.cursorPos
    */
-  constructor({ store, signaling, engine, input }) {
+  constructor({ store, signaling, engine, input, clipboard, cursorPos }) {
     super();
     this.store = store;
     this.sig = signaling;
     this.engine = engine;
     this.input = input;
+    this.clipboard = clipboard || null;
+    this.cursorPos = cursorPos || defaultCursorPos;
+    this.locked = false;
     this.sess = null;
     this.seen = new Set();
     this.stats = null;
@@ -90,9 +100,12 @@ class HostCore extends EventEmitter {
     const monitors = displays.list();
     const primary = monitors.find((d) => d.primary) || monitors[0];
     if (!primary) return reply({ t: 'deny', reason: 'no display' });
+    const q = media.resolveQuality({ preset: this.store.get('quality') });
     const s = {
       sid: msg.sid, slotId, key: slot.key, name: slot.name || String(msg.n || 'Phone'),
-      live: false, monitorId: primary.id, quality: this.store.get('quality'),
+      live: false, monitorId: primary.id, quality: q.preset, fps: q.fps, saver: q.saver,
+      audio: false, // set from the engine's offer: true only when system audio is really being captured
+      clip: null, cursor: null,
       timer: setTimeout(() => this.endSession('connect timeout', true), CONNECT_TIMEOUT_MS),
     };
     this.sess = s;
@@ -102,7 +115,8 @@ class HostCore extends EventEmitter {
       if (this.sess !== s) return; // ended or replaced while looking up the capture source
       this.engine.send({
         t: 'start', sid: s.sid, sourceId,
-        iceServers: this.#iceServers(), quality: s.quality, codec: this.store.get('codec'),
+        iceServers: this.#iceServers(), codec: this.store.get('codec'),
+        ...q, quality: q.preset, audio: this.store.get('shareAudio') === true,
       });
     } catch (e) {
       if (this.sess === s) this.endSession('capture failed: ' + e.message, true);
@@ -123,6 +137,7 @@ class HostCore extends EventEmitter {
     if (e.sid && (!s || s.sid !== e.sid)) return;
     switch (e.t) {
       case 'offer':
+        s.audio = e.audio === true;
         this.sig.publish(s.key, {
           t: 'offer', from: 'h', sid: s.sid, ts: Date.now(), sdp: e.sdp, v: PROTOCOL, host: this.store.get('hostName'),
         }).catch((err) => this.endSession('signaling failed: ' + err.message, true));
@@ -163,6 +178,9 @@ class HostCore extends EventEmitter {
         this.emit('log', `engine error in ${e.where}: ${e.message}`);
         if (e.where === 'start') this.endSession('capture failed: ' + e.message, true);
         break;
+      case 'log':
+        this.emit('log', 'engine: ' + e.message);
+        break;
       default: break;
     }
   }
@@ -174,10 +192,56 @@ class HostCore extends EventEmitter {
   #sendHello() {
     const s = this.sess;
     this.#send({
-      t: 'hello', v: PROTOCOL, host: this.store.get('hostName'), os: 'Windows', fps: 24,
+      t: 'hello', v: PROTOCOL, host: this.store.get('hostName'), os: 'Windows', fps: s.fps,
       control: this.store.get('allowControl'), quality: s.quality,
       monitors: displays.list(), active: s.monitorId,
+      locked: this.locked, audio: s.audio,
     });
+  }
+
+  /** PC lock state (wired to powerMonitor lock/unlock in main.js). Tells a live phone straight away. */
+  setLocked(on) {
+    const v = !!on;
+    if (v === this.locked) return;
+    this.locked = v;
+    if (this.sess?.live) this.#send({ t: 'locked', on: v });
+  }
+
+  #clipboardApi() {
+    if (!this.clipboard) this.clipboard = defaultClipboard();
+    return this.clipboard;
+  }
+
+  #clipSync(s) {
+    if (!s.clip) {
+      s.clip = new ClipboardSync({
+        read: () => this.#clipboardApi().readText(),
+        write: (t) => this.#clipboardApi().writeText(t),
+        send: (text) => this.#send({ t: 'clip', s: text }),
+      });
+    }
+    return s.clip;
+  }
+
+  #cursorStream(on) {
+    const s = this.sess;
+    if (!s?.live) return;
+    if (!on) { s.cursor?.stop(); return; }
+    if (!s.cursor) {
+      s.cursor = new CursorStream({
+        getPos: () => this.cursorPos(),
+        getBounds: () => this.#bounds(s.monitorId), // follows monitor switches
+        send: ({ x, y }) => this.#send({ t: 'cur', x, y }),
+      });
+    }
+    s.cursor.start();
+  }
+
+  #setQuality(s, m) {
+    const q = media.parseQualityMessage(m, s.quality);
+    if (!q) return;
+    s.quality = q.preset; s.fps = q.fps; s.saver = q.saver;
+    this.engine.send({ t: 'quality', sid: s.sid, ...q });
   }
 
   #bounds(monitorId) {
@@ -197,12 +261,10 @@ class HostCore extends EventEmitter {
       case 'monitors': this.#send({ t: 'monitors', monitors: displays.list(), active: s.monitorId }); break;
       case 'monitor': await this.switchMonitor(Number(m.id)); break;
       case 'thumbs': this.#thumbs(!!m.on); break;
-      case 'quality':
-        if (QUALITIES.has(m.p)) {
-          s.quality = m.p;
-          this.engine.send({ t: 'quality', preset: m.p });
-        }
-        break;
+      case 'quality': this.#setQuality(s, m); break;
+      case 'clip': if (control && s.live) this.#clipSync(s).fromPhone(m.s); break; // never log the text
+      case 'clipsync': if (s.live) this.#clipSync(s).setOn(m.on === true); break;
+      case 'curs': this.#cursorStream(m.on === true); break;
       case 'mv': if (control) this.input.moveBy(+m.dx || 0, +m.dy || 0); break;
       case 'abs': if (control) this.input.moveNorm(+m.x || 0, +m.y || 0); break;
       case 'btn': if (control) this.input.button(m.b, m.a); break;
@@ -268,6 +330,8 @@ class HostCore extends EventEmitter {
     clearTimeout(s.graceTimer);
     clearInterval(this.thumbTimer);
     this.thumbTimer = null;
+    s.clip?.stop();
+    s.cursor?.stop();
     this.stats = null;
     this.input.reset();
     this.engine.send({ t: 'stop', sid: s.sid });
