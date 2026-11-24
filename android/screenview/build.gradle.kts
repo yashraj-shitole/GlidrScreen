@@ -40,5 +40,6 @@ dependencies {
     implementation(libs.stream.webrtc.android)
     implementation(libs.play.services.code.scanner)
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303") // the android.jar org.json is a stub; message tests need the real one
     testImplementation(libs.kotlinx.coroutines.test)
 }
