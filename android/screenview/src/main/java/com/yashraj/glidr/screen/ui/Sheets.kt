@@ -139,9 +139,9 @@ private val MEDIA = listOf("Vol -" to "VolDown", "Vol +" to "VolUp", "Mute" to "
 fun KeyboardSheet(
     client: ScreenClient,
     haptic: (Boolean) -> Unit,
+    prefs: ViewerPrefs,
+    onPrefs: ((ViewerPrefs) -> ViewerPrefs) -> Unit,
     onDismiss: () -> Unit,
-    prefs: ViewerPrefs = ViewerPrefs(),
-    onPrefs: ((ViewerPrefs) -> ViewerPrefs) -> Unit = {},
 ) {
     val c = Gs.colors
     val latched: SnapshotStateList<String> = remember { mutableStateListOf() }

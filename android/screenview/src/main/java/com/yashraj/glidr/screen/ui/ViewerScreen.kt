@@ -40,6 +40,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.yashraj.glidr.screen.ViewerPrefs
 import com.yashraj.glidr.screen.net.ConnState
+import com.yashraj.glidr.screen.net.MouseButton
 import com.yashraj.glidr.screen.net.ScreenClient
 
 private enum class Overlay { None, Keyboard, Displays, Settings, ConfirmExit }
@@ -92,7 +93,7 @@ fun ViewerScreen(
             RemoteVideo(track, client, zoom, prefs.directTouch, videoSize, haptic, Modifier.fillMaxSize())
             if (live) {
                 Row(Modifier.align(Alignment.TopStart).padding(Space.md), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                    if (sortedMonitors.size > 1) {
+                    if (sortedMonitors.size > 1 && !prefs.oneHanded) {
                         sortedMonitors.forEachIndexed { i, m ->
                             val on = m.id == active
                             Box(
@@ -117,6 +118,20 @@ fun ViewerScreen(
         Column(mod, verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Trackpad(client, prefs, hostWidth, haptic, Modifier.weight(1f).fillMaxWidth())
             MouseButtons(client, haptic)
+            ShortcutDeck(prefs.shortcuts, client, haptic)
+            if (prefs.simpleGestures) SimpleGestureButtons(client, haptic)
+            if (prefs.oneHanded && sortedMonitors.size > 1) {
+                // within thumb reach: the display switches live next to the tools instead of in the top corner
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                    sortedMonitors.forEachIndexed { i, m ->
+                        val on = m.id == active
+                        PressBox(
+                            { client.switchMonitor(m.id); haptic(false) }, Modifier.weight(1f).height(44.dp), "Display ${i + 1}", RoundedCornerShape(Radius.key),
+                            background = if (on) c.accent else c.s2, border = !on,
+                        ) { Label("${i + 1}", color = if (on) c.ink else c.text) }
+                    }
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                 ToolButton(Ico.Display, "Displays", Modifier.weight(1f), enabled = monitors.isNotEmpty()) { overlay = Overlay.Displays }
                 ToolButton(Ico.Swap, "Next display", Modifier.weight(1f), enabled = sortedMonitors.size > 1) {
@@ -129,7 +144,8 @@ fun ViewerScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(c.bg)) {
+    // an attached keyboard and mouse drive the PC while the session is live and no sheet is open
+    Box(Modifier.fillMaxSize().background(c.bg).hardwareInput(client, live && overlay == Overlay.None, prefs, hostWidth)) {
         if (landscape) {
             Row(Modifier.fillMaxSize().navigationBarsPadding()) {
                 video(Modifier.weight(1f).fillMaxHeight())
@@ -146,7 +162,7 @@ fun ViewerScreen(
             }
         }
         when (overlay) {
-            Overlay.Keyboard -> KeyboardSheet(client, haptic) { overlay = Overlay.None }
+            Overlay.Keyboard -> KeyboardSheet(client, haptic, prefs, onPrefs) { overlay = Overlay.None }
             Overlay.Displays -> MonitorSheet(client) { overlay = Overlay.None }
             Overlay.Settings -> SettingsSheet(client, prefs, onPrefs, onDisconnect = onExit) { overlay = Overlay.None }
             Overlay.ConfirmExit -> Sheet({ overlay = Overlay.None }) {
@@ -238,6 +254,16 @@ private fun StateOverlay(state: ConnState, diag: String, onRetry: () -> Unit, on
                 }
             }
         }
+    }
+}
+
+/** On-screen Middle click and scrolling for people who cannot do the multi-finger gestures. */
+@Composable
+private fun SimpleGestureButtons(client: ScreenClient, haptic: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+        Pill("Middle", { client.click(MouseButton.Middle); haptic(false) }, Modifier.weight(1f))
+        Pill("Up", { client.scrollBy(0f, 3f); haptic(false) }, Modifier.weight(1f))
+        Pill("Down", { client.scrollBy(0f, -3f); haptic(false) }, Modifier.weight(1f))
     }
 }
 

@@ -51,6 +51,8 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
 
     private var nameJob: Job? = null
     private var liveJob: Job? = null
+    /** The PC whose input settings (speed, zones, handedness) are active; they are kept per PC. */
+    private var activePcId: String? = null
 
     fun connect(pc: PairedPc) {
         nameJob?.cancel()
@@ -58,6 +60,8 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
         _client.value?.close()
         store.touch(pc)
         _pcs.value = store.load()
+        activePcId = pc.id
+        _prefs.value = _prefs.value.withInputFrom(prefsStore.loadFor(pc.id))
         val c = ScreenClient(getApplication(), pc, viewModelScope)
         _client.value = c
         c.start()
@@ -87,6 +91,7 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
     fun forget(pc: PairedPc) {
         if (_client.value != null) disconnect()
         store.remove(pc)
+        prefsStore.removeFor(pc.id)
         _pcs.value = store.load()
     }
 
@@ -96,7 +101,7 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updatePrefs(f: (ViewerPrefs) -> ViewerPrefs) {
-        _prefs.value = f(_prefs.value).also { prefsStore.save(it) }
+        _prefs.value = f(_prefs.value).also { prefsStore.save(it); activePcId?.let { id -> prefsStore.saveFor(id, it) } }
     }
 
     // ------------------------------------------------------------------ updates (only when the host app opts in)
