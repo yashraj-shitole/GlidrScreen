@@ -1,6 +1,9 @@
 package com.yashraj.glidr.screen.ui
 
 import android.content.Intent
+import android.net.Uri
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Alignment
 import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +32,8 @@ import com.yashraj.glidr.screen.update.UpdateSource
  *
  * @param pendingLink a `glidr://screen?...` link received from outside (deep link); it is paired and connected
  *   automatically, then [onLinkConsumed] is called.
+ * @param pendingShare files another app shared to this one (content URIs). They wait in a [ShareQueue] until a PC is
+ *   connected, then the send sheet offers them; nothing is read before that. [onShareConsumed] is called once queued.
  * @param onClose shows a back button on the PC list when the feature is embedded in another app's navigation.
  * @param updates checks this GitHub repo for newer releases and offers the download. Leave null when embedded:
  *   the host app owns updates.
@@ -38,6 +43,8 @@ fun GlidrScreenApp(
     modifier: Modifier = Modifier,
     pendingLink: String? = null,
     onLinkConsumed: () -> Unit = {},
+    pendingShare: List<Uri> = emptyList(),
+    onShareConsumed: () -> Unit = {},
     onClose: (() -> Unit)? = null,
     updates: UpdateSource? = null,
     viewModel: ScreenViewModel = viewModel(),
@@ -51,6 +58,14 @@ fun GlidrScreenApp(
     val context = LocalContext.current
 
     LaunchedEffect(updates) { updates?.let(viewModel::configureUpdates) }
+
+    val shares = remember { ShareQueue() }
+    LaunchedEffect(pendingShare) {
+        if (pendingShare.isNotEmpty()) {
+            shares.add(pendingShare)
+            onShareConsumed()
+        }
+    }
 
     // Any web page or app can open a glidr:// link, so a link for a PC that is not paired yet is confirmed first.
     // A link would otherwise pick the key and signaling server this phone talks to.
@@ -69,6 +84,7 @@ fun GlidrScreenApp(
     }
 
     ScreenTheme(light = prefs.light, accent = prefs.accent) {
+      CompositionLocalProvider(LocalShareQueue provides shares) {
         Box(Modifier.fillMaxSize()) {
             val active = client
             if (active != null) {
@@ -89,6 +105,7 @@ fun GlidrScreenApp(
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                     } else null,
                 )
+                if (shares.uris.isNotEmpty()) ShareWaitingCard(shares, Modifier.align(Alignment.BottomCenter))
             }
             linkToConfirm?.let { (text, info) ->
                 val c = Gs.colors
@@ -111,5 +128,6 @@ fun GlidrScreenApp(
                 }
             }
         }
+      }
     }
 }

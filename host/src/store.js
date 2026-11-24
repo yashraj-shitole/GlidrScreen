@@ -17,6 +17,7 @@ const DEFAULTS = {
   keepAwake: true, // hold off sleep while sharing is on
   endOnLock: false, // end the phone session when this PC locks
   shareAudio: false, // send PC audio to the phone (read by the engine)
+  allowFiles: true, // accept files sent from the phone into Downloads\Glidr (also needs allowControl and a phone that is not view only)
   quality: 'auto', // auto | low | balanced | high
   codec: 'auto', // auto | h264 | vp8
   stun: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],

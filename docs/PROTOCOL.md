@@ -240,6 +240,54 @@ The pointer is confined to the shared display; buttons and keys still held when 
 Unknown messages are ignored by both sides, so the protocol version stays 1: a phone talking to an older host simply
 never receives `clip`, `cur` or `locked`, and an older phone never sends the new messages.
 
+## File transfer (phone to PC)
+
+The phone can send files to the PC. The PC creates a **second** data channel next to `ctl`, labelled `files` (reliable,
+ordered). A phone must route incoming channels by `channel.label()`: `ctl` is JSON control, `files` carries file bytes.
+Older hosts have no `files` channel and ignore `file-offer`; the phone treats a missing answer as "not supported".
+
+Control messages travel on `ctl`:
+
+| message | direction | meaning |
+|---------|-----------|---------|
+| `{"t":"file-offer","id":"<8 hex>","name":"<file name>","size":<bytes>}` | phone to PC | ask to send one file. `id` is 8 lower-case hex digits, unique per transfer |
+| `{"t":"file-accept","id"}` | PC to phone | go ahead and stream the file on `files` |
+| `{"t":"file-reject","id","reason"}` | PC to phone | refused, nothing was created. `reason` is `disabled`, `too-big`, `view-only`, `busy` or `bad-name` |
+| `{"t":"file-done","id","ok":bool,"name":"<saved name>"}` | PC to phone | the transfer finished. `ok:true`: the file was saved under `name` (which may differ from the offered name). `ok:false`: nothing was kept (`name` is empty) |
+
+Data on `files`, after `file-accept`:
+
+1. a text frame `{"t":"begin","id"}`;
+2. binary frames of **at most 16384 bytes**, in order, exactly `size` bytes in total. The sender pauses when
+   `bufferedAmount` is above 256 KB and resumes on `bufferedamountlow`;
+3. a text frame `{"t":"end","id","sha256":"<64 hex digits, SHA-256 of the whole file>"}`.
+
+The PC replies with `file-done` once the file is on disk. To cancel, the phone sends a text frame `{"t":"cancel","id"}` on
+`files` (optional; the PC then deletes the partial file and answers `file-done` `ok:false`). If the phone stops sending for
+60 s, or never sends `begin` within 30 s of the accept, the PC gives up the same way.
+
+Rules the host enforces:
+
+* **Refused** (`disabled`) unless the PC-wide "Allow remote control" is on **and** the new setting `allowFiles` ("Allow
+  receiving files from the phone", on by default) is on; `view-only` for a view-only phone (see *Per-phone permissions*).
+  The check is made on every offer.
+* **Size cap 200 MB** (209,715,200 bytes): a larger offer is answered `too-big` before anything is accepted.
+* **One transfer at a time**: a second offer while one runs is answered `busy`. A malformed offer (no name, size not a
+  non-negative integer, bad id) is answered `bad-name`.
+* **Name**: any path is stripped (both `/` and `\`); control characters, `<>:"|?*` and bidi overrides are removed; leading
+  dots and trailing dots / spaces are dropped; reserved Windows device names (`CON`, `NUL`, `COM1`, ...) get a `_`
+  prefix; at most 120 characters (the extension is kept); an empty result becomes `file`.
+* **Where**: the PC's `Downloads\Glidr` folder, created when missing; nowhere else. An existing name gets `name (2).ext`,
+  `name (3).ext`, ...
+* **Safety**: bytes are streamed to a temp file (`.<id>.glidr-part`) in that folder, never buffered whole, and the file is
+  renamed to its final name **only** when the byte count and the SHA-256 match; otherwise the partial file is deleted.
+  The host never opens or runs the received file.
+* **Abort**: the transfer is cut off, and the partial file deleted, when the session ends, when the `files` channel
+  closes, or when "Allow remote control" or "Allow receiving files" is switched off (the phone then gets `file-done`
+  `ok:false`).
+* The PC shows a tray notification "Received <name> from <phone>". File names, contents and hashes are not logged
+  (except at debug level).
+
 ## Security model
 
 * Possession of the 128-bit pairing key is the only credential. It is created on the PC, shown on the PC screen, and

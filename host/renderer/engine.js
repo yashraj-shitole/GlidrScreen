@@ -140,6 +140,16 @@ async function hostStart(cmd) {
   dc.onopen = () => emit({ t: 'dc-open', sid: s.sid });
   dc.onclose = () => emit({ t: 'dc-close', sid: s.sid });
   dc.onmessage = (e) => emit({ t: 'ctl', sid: s.sid, data: String(e.data) });
+  // File transfer from the phone: its own reliable channel, so megabytes of chunks never queue behind input.
+  // Text frames are begin / end, binary frames are file bytes; the main process (src/files.js) writes them to disk.
+  const fdc = pc.createDataChannel('files', { ordered: true });
+  fdc.binaryType = 'arraybuffer';
+  s.fdc = fdc;
+  fdc.onmessage = (e) => {
+    if (typeof e.data === 'string') emit({ t: 'files', sid: s.sid, data: e.data });
+    else emit({ t: 'files-bin', sid: s.sid, data: new Uint8Array(e.data) });
+  };
+  fdc.onclose = () => emit({ t: 'files-close', sid: s.sid });
   pc.onconnectionstatechange = () => {
     emit({ t: 'state', sid: s.sid, state: pc.connectionState });
     if (pc.connectionState === 'connected') { applyQuality(); startStats(s); }
@@ -179,6 +189,7 @@ function hostStop(sid) {
   if (!host || (sid && host.sid !== sid)) return;
   clearInterval(host.statsTimer);
   try { host.dc?.close(); } catch { /* ignore */ }
+  try { host.fdc?.close(); } catch { /* ignore */ }
   try { host.pc.close(); } catch { /* ignore */ }
   host.stream.getTracks().forEach((t) => t.stop());
   host.audioTrack?.stop();
@@ -225,6 +236,7 @@ async function viewerStart(cmd) {
   const v = { pc, dc: null, msgs: 0 };
   viewer = v;
   pc.ondatachannel = (e) => {
+    if (e.channel.label !== 'ctl') return; // the `files` channel is not part of the self-test
     v.dc = e.channel;
     v.dc.onmessage = (m) => emit({ t: 'v-ctl', data: String(m.data) });
     v.dc.onopen = () => emit({ t: 'v-open' });

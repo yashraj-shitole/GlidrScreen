@@ -5,6 +5,8 @@ const displays = require('./displays');
 const media = require('./media');
 const { ClipboardSync, CursorStream } = require('./sync');
 const permissions = require('./permissions');
+const { FileReceiver } = require('./files');
+const path = require('path');
 
 const MAX_TIMER_MS = 2 ** 31 - 1; // setTimeout fires at once above this
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -15,6 +17,8 @@ const PROTOCOL = 1;
 // Electron's clipboard and the koffi-backed cursor reader are required lazily so unit tests can load this file.
 const defaultClipboard = () => require('electron').clipboard;
 const defaultCursorPos = () => require('./input').InputInjector.cursorPos();
+/** Received files go to <Downloads>\Glidr and nowhere else. */
+const defaultFilesDir = () => path.join(require('electron').app.getPath('downloads'), 'Glidr');
 
 class HostCore extends EventEmitter {
   /**
@@ -24,8 +28,9 @@ class HostCore extends EventEmitter {
    * @param input InputInjector
    * @param clipboard optional {readText, writeText} (tests); defaults to Electron's clipboard
    * @param cursorPos optional () => {x,y} (tests); defaults to InputInjector.cursorPos
+   * @param filesDir optional () => string (tests): where received files are saved; defaults to Downloads\Glidr
    */
-  constructor({ store, signaling, engine, input, clipboard, cursorPos }) {
+  constructor({ store, signaling, engine, input, clipboard, cursorPos, filesDir }) {
     super();
     this.store = store;
     this.sig = signaling;
@@ -33,6 +38,7 @@ class HostCore extends EventEmitter {
     this.input = input;
     this.clipboard = clipboard || null;
     this.cursorPos = cursorPos || defaultCursorPos;
+    this.filesDir = filesDir || defaultFilesDir;
     this.locked = false;
     this.sess = null;
     this.seen = new Set();
@@ -193,6 +199,9 @@ class HostCore extends EventEmitter {
       case 'ctl':
         this.#onCtl(s, e.data);
         break;
+      case 'files': s.files?.onText(String(e.data)); break; // `files` channel, text frame (begin / end)
+      case 'files-bin': s.files?.onBinary(e.data); break; // `files` channel, binary chunk
+      case 'files-close': s.files?.abort('files channel closed', true); break;
       case 'switched':
         s.monitorId = e.monitorId;
         this.#send({ t: 'active', id: e.monitorId, w: e.w, h: e.h });
@@ -265,6 +274,34 @@ class HostCore extends EventEmitter {
     s.cursor.start();
   }
 
+  /** The phone's file offer: policy decides, the receiver streams the bytes to Downloads\Glidr (see files.js). */
+  #fileOffer(s, m) {
+    this.#fileReceiver(s).offer(m, {
+      allowFiles: this.store.get('allowFiles') !== false, // default on
+      allowControl: this.store.get('allowControl') === true,
+      viewOnly: this.store.slot(s.slotId)?.viewOnly === true,
+    });
+    this.#changed();
+  }
+
+  #fileReceiver(s) {
+    if (!s.files) {
+      s.files = new FileReceiver({
+        dir: () => this.filesDir(),
+        send: (obj) => { if (this.sess === s) { this.#send(obj); this.#changed(); } },
+        onSaved: ({ name, size }) => this.emit('file-received', { name, size, from: s.name }),
+        log: (msg) => this.emit('log', msg),
+      });
+    }
+    return s.files;
+  }
+
+  /** "Allow receiving files" was switched on the PC: a transfer in progress is cut off when it was switched off. */
+  filesChanged() {
+    const s = this.sess;
+    if (s?.files && this.store.get('allowFiles') === false) s.files.abort('switched off on the PC', true);
+  }
+
   #setQuality(s, m) {
     const q = media.parseQualityMessage(m, s.quality);
     if (!q) return;
@@ -294,6 +331,7 @@ class HostCore extends EventEmitter {
       case 'clip': if (control && s.live) this.#clipSync(s).fromPhone(m.s); break; // never log the text
       case 'clipsync': if (s.live) this.#clipSync(s).setOn(m.on === true); break;
       case 'curs': this.#cursorStream(m.on === true); break;
+      case 'file-offer': if (s.live) this.#fileOffer(s, m); break; // never log the name
       case 'mv': if (control) this.input.moveBy(+m.dx || 0, +m.dy || 0); break;
       case 'abs': if (control) this.input.moveNorm(+m.x || 0, +m.y || 0); break;
       case 'btn': if (control) this.input.button(m.b, m.a); break;
@@ -326,7 +364,7 @@ class HostCore extends EventEmitter {
     const s = this.sess;
     if (!s?.live) return;
     const on = this.#canControl(s);
-    if (!on) this.input.reset(); // release anything the phone was holding
+    if (!on) { this.input.reset(); s.files?.abort('control switched off', true); } // release anything the phone was holding
     this.#send({ t: 'control', on });
   }
 
@@ -362,6 +400,7 @@ class HostCore extends EventEmitter {
     this.thumbTimer = null;
     s.clip?.stop();
     s.cursor?.stop();
+    s.files?.abort('session ended', false); // partial file deleted, nobody left to tell
     this.stats = null;
     this.input.reset();
     this.engine.send({ t: 'stop', sid: s.sid });

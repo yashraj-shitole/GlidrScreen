@@ -149,7 +149,7 @@ async function buildState() {
       ...permissions.describe(s, Date.now()),
     })),
     settings: {
-      hostName: store.get('hostName'), allowControl: store.get('allowControl'), quality: store.get('quality'),
+      hostName: store.get('hostName'), allowControl: store.get('allowControl'), allowFiles: store.get('allowFiles') !== false, quality: store.get('quality'),
       codec: store.get('codec'), signalBase: store.get('signalBase'),
       autostart: app.getLoginItemSettings(LOGIN_ITEM).openAtLogin,
       keepAwake: store.get('keepAwake'), endOnLock: store.get('endOnLock'), shareAudio: store.get('shareAudio'),
@@ -225,7 +225,7 @@ function registerIpc() {
         store.revoke(arg); store.createSlot(); core.refreshSlots(); break;
       case 'setting': {
         const patch = {};
-        for (const k of ['allowControl', 'keepAwake', 'endOnLock', 'shareAudio']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
+        for (const k of ['allowControl', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -236,6 +236,7 @@ function registerIpc() {
         store.set(patch);
         if (patch.signalBase) signaling.setBase(patch.signalBase);
         if ('allowControl' in patch) core.controlChanged();
+        if ('allowFiles' in patch) core.filesChanged();
         if ('keepAwake' in patch) keepAwake.sync();
         break;
       }
@@ -272,6 +273,10 @@ app.whenReady().then(async () => {
       notifiedVersion = u.latest; // one balloon per new version
       tray.displayBalloon({ title: 'Glidr Screen update', content: `Version ${u.latest} is available. Open the tray menu to download it.` });
     }
+  });
+  // Data only: the file's name and the phone's name, never a path. Files can only land in Downloads\Glidr.
+  core.on('file-received', ({ name, from }) => {
+    if (tray) tray.displayBalloon({ title: 'Glidr Screen', content: `Received ${name} from ${from}` });
   });
   core.on('log', (m) => { if (SELFTEST || process.env.GLIDR_DEBUG) console.log('[host]', m); });
   screen.on('display-added', () => core.displaysChanged());

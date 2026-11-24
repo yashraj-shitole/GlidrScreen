@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.yashraj.glidr.screen.net.ConnState
 import com.yashraj.glidr.screen.net.ScreenClient
 
 /**
@@ -32,6 +34,7 @@ import com.yashraj.glidr.screen.net.ScreenClient
  */
 class ViewerExtras {
     var clipboardOpen by mutableStateOf(false)
+    var sendOpen by mutableStateOf(false)
 }
 
 @Composable
@@ -81,6 +84,7 @@ fun BoxScope.ViewerVideoOverlays(client: ScreenClient, zoom: VideoViewState, ext
         horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
         OverlayChip(ExtraIco.Clipboard, "Clipboard") { extras.clipboardOpen = true }
+        OverlayChip(ExtraIco.Send, "Send file to PC") { extras.sendOpen = true }
         if (zoom.zoomed) {
             OverlayChip(ExtraIco.Pointer, if (zoom.followCursor) "Follow pointer, on" else "Follow pointer, off", zoom.followCursor, "Follow pointer") {
                 zoom.followCursor = !zoom.followCursor
@@ -102,5 +106,14 @@ fun ViewerExtraSheets(client: ScreenClient, extras: ViewerExtras) {
         // registered after the viewer's own BackHandler, so Back closes this sheet first
         BackHandler { extras.clipboardOpen = false }
         ClipboardSheet(client) { extras.clipboardOpen = false }
+    }
+    // Files shared from another app open the send sheet once the connection is live (never before: nothing is read earlier).
+    val shares = LocalShareQueue.current
+    val state by client.state.collectAsState()
+    val live = state is ConnState.Live
+    LaunchedEffect(live, shares.uris.isNotEmpty()) { if (live && shares.uris.isNotEmpty()) extras.sendOpen = true }
+    if (extras.sendOpen) {
+        BackHandler { extras.sendOpen = false }
+        SendFileSheet(client, shares) { extras.sendOpen = false }
     }
 }
