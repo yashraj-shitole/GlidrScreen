@@ -40,6 +40,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.yashraj.glidr.screen.ScreenViewModel
+import com.yashraj.glidr.screen.lock.AppLockSession
 import com.yashraj.glidr.screen.signal.PairedPc
 import com.yashraj.glidr.screen.signal.PcPresence
 import com.yashraj.glidr.screen.signal.PresenceText
@@ -74,6 +75,8 @@ fun HomeScreen(
     presence: Map<String, PcPresence?>? = null,
     /** Looks the PCs up again; null = the shared [ScreenViewModel]'s. */
     onRefreshPresence: (() -> Unit)? = null,
+    /** The app lock, for the "App lock" row and its sheet; null hides them (an embedding host that has its own lock). */
+    lock: AppLockSession? = null,
 ) {
     val c = Gs.colors
     val context = LocalContext.current
@@ -87,6 +90,7 @@ fun HomeScreen(
     var scanError by remember { mutableStateOf<String?>(null) }
     var confirmForget by remember { mutableStateOf<PairedPc?>(null) }
     var manage by remember { mutableStateOf<PairedPc?>(null) }
+    var showLock by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize().background(c.bg)) {
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -172,6 +176,7 @@ fun HomeScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                     Pill("Scan QR", {
                         scanError = null
+                        lock?.beginExternalUi() // the scanner is another screen: coming back from it must not lock and drop the scan
                         scanQr(context, { text -> onPair(text)?.let(onConnect) }, { scanError = it })
                     }, Modifier.weight(1f), primary = pcs.isEmpty())
                     Pill("Enter code", { onClearError(); showCode = true }, Modifier.weight(1f))
@@ -184,6 +189,19 @@ fun HomeScreen(
                     "Your PC and phone talk directly over an encrypted link. No video passes through any server.",
                     color = c.dim, style = Gs.type.small, modifier = Modifier.padding(vertical = Space.sm),
                 )
+            }
+        }
+        // App lock: one small row in the footer, opens the settings sheet
+        if (lock != null) {
+            val lockOn by lock.settings.collectAsState()
+            PressBox(
+                { showLock = true }, Modifier.fillMaxWidth().height(48.dp).padding(horizontal = Space.lg),
+                "App lock, currently ${if (lockOn.enabled) "on" else "off"}", background = Color.Transparent, border = false,
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Label("App lock", color = c.dim, style = Gs.type.small, modifier = Modifier.weight(1f))
+                    Label(if (lockOn.enabled) "On" else "Off", color = if (lockOn.enabled) c.accentText else c.dim, style = Gs.type.small)
+                }
             }
         }
         // version and update check stay at the bottom of the screen instead of floating under the list
@@ -209,6 +227,7 @@ fun HomeScreen(
         }
         }
 
+        if (lock != null && showLock) LockSettingsSheet(lock) { showLock = false }
         if (showCode) CodeSheet(pairError, onClearError, { showCode = false }) { text ->
             val pc = onPair(text)
             if (pc != null) { showCode = false; onConnect(pc) }

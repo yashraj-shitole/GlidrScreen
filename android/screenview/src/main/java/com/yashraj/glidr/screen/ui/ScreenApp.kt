@@ -3,6 +3,7 @@ package com.yashraj.glidr.screen.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.core.net.toUri
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yashraj.glidr.screen.ScreenViewModel
 import com.yashraj.glidr.screen.signal.DEFAULT_SIGNAL_BASE
@@ -56,8 +60,25 @@ fun GlidrScreenApp(
     val update by viewModel.update.collectAsState()
     val wakeNote by viewModel.wakeNote.collectAsState()
     val context = LocalContext.current
+    val locked by viewModel.lock.locked.collectAsState()
 
-    LaunchedEffect(updates) { updates?.let(viewModel::configureUpdates) }
+    // The lock engages when the app has been in the background for the chosen delay. Activity stop/start is the signal
+    // (ProcessLifecycleOwner is not a dependency). The first ON_START replayed on registration does nothing.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> viewModel.lock.onStop()
+                Lifecycle.Event.ON_START -> viewModel.lock.onStart()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // nothing talks to the network while the lock screen is up, not even the update check
+    LaunchedEffect(updates, locked) { if (!locked) updates?.let(viewModel::configureUpdates) }
 
     val shares = remember { ShareQueue() }
     LaunchedEffect(pendingShare) {
@@ -71,8 +92,9 @@ fun GlidrScreenApp(
     // A link would otherwise pick the key and signaling server this phone talks to.
     var linkToConfirm by remember { mutableStateOf<Pair<String, PairingInfo>?>(null) }
 
-    LaunchedEffect(pendingLink) {
-        if (pendingLink != null) {
+    // While locked the link stays pending (the caller keeps it until onLinkConsumed) and is handled right after unlock.
+    LaunchedEffect(pendingLink, locked) {
+        if (pendingLink != null && !locked) {
             val info = PairingParser.parse(pendingLink)
             when {
                 info == null -> viewModel.pair(pendingLink) // sets the "does not look like a pairing code" error
@@ -87,7 +109,10 @@ fun GlidrScreenApp(
       CompositionLocalProvider(LocalShareQueue provides shares) {
         Box(Modifier.fillMaxSize()) {
             val active = client
-            if (active != null) {
+            if (locked) {
+                // the only thing composed while locked: no PC list, no video, no sheets, no pairing prompt behind it
+                LockScreen(viewModel.lock, prefs.haptics)
+            } else if (active != null) {
                 ViewerScreen(active, prefs, viewModel::updatePrefs, onExit = viewModel::disconnect)
             } else {
                 HomeScreen(
@@ -101,13 +126,14 @@ fun GlidrScreenApp(
                     onForget = viewModel::forget,
                     onRename = viewModel::rename,
                     onClose = onClose,
+                    lock = viewModel.lock,
                     update = if (updates != null) UpdateUi(updates.currentVersion, update, viewModel::checkForUpdates) { url ->
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
                     } else null,
                 )
                 if (shares.uris.isNotEmpty()) ShareWaitingCard(shares, Modifier.align(Alignment.BottomCenter))
             }
-            linkToConfirm?.let { (text, info) ->
+            if (!locked) linkToConfirm?.let { (text, info) ->
                 val c = Gs.colors
                 Sheet({ linkToConfirm = null }) {
                     Label("Pair with ${info.hostName}?", maxLines = 2, style = Gs.type.body)
