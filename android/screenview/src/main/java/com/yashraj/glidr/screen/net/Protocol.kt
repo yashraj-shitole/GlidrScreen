@@ -151,6 +151,12 @@ object Msg {
 
     /** Start or stop the PC cursor position stream ([HostEvent.Cursor], about 30 Hz). */
     fun curs(on: Boolean) = JSONObject().put("t", "curs").put("on", on)
+
+    /**
+     * Run the PC's quick action [id]. Only an id is ever sent, never a command (see [QuickAction]). [confirm] is true only
+     * after the person confirmed a dangerous action (restart, shut down) on the phone.
+     */
+    fun action(id: String, confirm: Boolean = false) = JSONObject().put("t", "action").put("id", id).put("confirm", confirm)
 }
 
 /** Frame rates the PC offers; the host clamps anything else. */
@@ -219,4 +225,66 @@ object HostEvents {
         audio = if (m.has("audio")) m.optBoolean("audio") else null,
         fps = m.optInt("fps", 0).takeIf { it > 0 },
     )
+}
+
+/**
+ * One quick action the PC offers (`hello.actions`, `actions`): only an [id] the PC knows, its [label] and whether it is
+ * [danger]ous (restart, shut down: the phone asks for confirmation and sends `confirm:true`). The phone never learns
+ * what an action runs, and never sends anything but the [id].
+ */
+data class QuickAction(val id: String, val label: String, val danger: Boolean) {
+    companion object {
+        const val MAX_ACTIONS = 32
+        const val MAX_LABEL = 60
+        /** Built-in id of "Cancel shutdown" (`shutdown /a`): the sheet shows it while a restart or shutdown is counting down. */
+        const val CANCEL_SHUTDOWN = "cancel-shutdown"
+        private val ID = Regex("[a-z0-9-]{1,24}")
+
+        fun validId(id: String?): Boolean = id != null && ID.matches(id)
+
+        /** Tolerant: entries without a valid text `id` are dropped, labels lose control characters and are cut; missing list = none. */
+        fun parseAll(arr: JSONArray?): List<QuickAction> {
+            if (arr == null) return emptyList()
+            val out = ArrayList<QuickAction>()
+            val seen = HashSet<String>()
+            for (i in 0 until arr.length()) {
+                if (out.size >= MAX_ACTIONS) break
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.opt("id") as? String ?: continue
+                if (!validId(id) || !seen.add(id)) continue
+                val label = PcWindow.cleanTitle(o.opt("label") as? String).take(MAX_LABEL).ifBlank { id }
+                out += QuickAction(id, label, o.opt("danger") == true)
+            }
+            return out
+        }
+    }
+}
+
+/** The PC's answer to an `action`. [reason] is one of the host's reasons when [ok] is false, or "offline" (made up by the phone). */
+data class ActionResult(val id: String, val ok: Boolean, val reason: String?) {
+    /** Text for the person holding the phone. */
+    val message: String
+        get() = if (ok) (if (id == QuickAction.CANCEL_SHUTDOWN) "Shutdown cancelled" else "Done") else when (reason) {
+            "disabled" -> "Switched off on the PC"
+            "unknown" -> "No longer available on the PC"
+            "view-only" -> "This phone is view only"
+            "rate" -> "Too many actions, wait a moment"
+            "confirm" -> "Please confirm first"
+            "failed" -> "The PC could not run that"
+            "offline" -> "Not connected to the PC"
+            else -> "The PC did not do that"
+        }
+
+    companion object {
+        private val REASON = Regex("[a-z-]{1,20}")
+
+        fun parse(m: JSONObject): ActionResult? {
+            if (m.optString("t") != "action-result") return null
+            val id = m.opt("id") as? String
+            if (id == null || !QuickAction.validId(id)) return null
+            val ok = m.opt("ok") == true
+            val reason = (m.opt("reason") as? String)?.takeIf { REASON.matches(it) }
+            return ActionResult(id, ok, if (ok) null else reason)
+        }
+    }
 }

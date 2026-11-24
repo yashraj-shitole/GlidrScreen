@@ -125,6 +125,16 @@ class ScreenClient(
     private val _locked = MutableStateFlow(false)
     /** True while the PC is locked (the lock screen cannot be captured or controlled). Reset when the session ends. */
     val hostLocked: StateFlow<Boolean> = _locked.asStateFlow()
+    private val _quickActions = MutableStateFlow<List<QuickAction>>(emptyList())
+    /** What the PC lets this phone do (lock, sleep, ...): only the actions the PC owner switched on, empty from an older host. */
+    val quickActions: StateFlow<List<QuickAction>> = _quickActions.asStateFlow()
+    private val _actionResult = MutableSharedFlow<ActionResult>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    /** One-shot answer of the PC to [runAction] (see [ActionResult.message]). */
+    val lastActionResult: SharedFlow<ActionResult> = _actionResult.asSharedFlow()
+    private val _shutdownPending = MutableStateFlow(false)
+    /** True for a short while after a restart or shutdown was accepted: the PC counts down and "Cancel shutdown" is useful. */
+    val shutdownPending: StateFlow<Boolean> = _shutdownPending.asStateFlow()
+    private var shutdownJob: Job? = null
     private val _cursor = MutableStateFlow<Pair<Float, Float>?>(null)
     /** PC pointer position, 0..1 inside the shared display; null until the first `cur` after [setCursorStream] is on. */
     val cursor: StateFlow<Pair<Float, Float>?> = _cursor.asStateFlow()
@@ -415,6 +425,9 @@ class ScreenClient(
         _activeKind.value = SourceKind.Monitor
         _activeWindow.value = null
         _locked.value = false
+        _quickActions.value = emptyList()
+        shutdownJob?.cancel()
+        _shutdownPending.value = false
         _cursor.value = null
         _lastClip.value = null
         _audioActive.value = false
@@ -609,8 +622,11 @@ class ScreenClient(
                 extras.locked?.let { _locked.value = it }
                 extras.fps?.let { _fps.value = it }
                 if (extras.audio == false) _audioActive.value = false
+                _quickActions.value = QuickAction.parseAll(m.optJSONArray("actions")) // missing (older host) = none
                 resendWishes()
             }
+            "actions" -> _quickActions.value = QuickAction.parseAll(m.optJSONArray("list"))
+            "action-result" -> ActionResult.parse(m)?.let { onActionResult(it) }
             "monitors" -> {
                 _monitors.value = Monitor.parseAll(m.optJSONArray("monitors"))
                 // while a window is shared `active` here is only the last monitor: keep "no monitor" selected
@@ -788,6 +804,31 @@ class ScreenClient(
         send(Msg.clipsync(on))
     }
 
+    /**
+     * Asks the PC to run its quick action [id] (a PC-side id from [quickActions]; no command ever leaves the phone).
+     * Set [confirm] only after the person confirmed a dangerous action. The answer arrives on [lastActionResult];
+     * when nothing could be sent it is a local "offline" result.
+     */
+    fun runAction(id: String, confirm: Boolean = false): Boolean {
+        val sent = QuickAction.validId(id) && send(Msg.action(id, confirm))
+        if (!sent) _actionResult.tryEmit(ActionResult(id, false, "offline"))
+        return sent
+    }
+
+    private fun onActionResult(r: ActionResult) {
+        _actionResult.tryEmit(r)
+        if (!r.ok) return
+        if (r.id == QuickAction.CANCEL_SHUTDOWN) {
+            shutdownJob?.cancel()
+            _shutdownPending.value = false
+        } else if (_quickActions.value.firstOrNull { it.id == r.id }?.danger == true) {
+            // restart / shutdown start after 15 s on the PC: keep "Cancel shutdown" around a little longer than that
+            _shutdownPending.value = true
+            shutdownJob?.cancel()
+            shutdownJob = scope.launch { delay(SHUTDOWN_WINDOW_MS); _shutdownPending.value = false }
+        }
+    }
+
     /** Start or stop the PC cursor position stream. Turn it off whenever nothing uses it. */
     fun setCursorStream(on: Boolean) {
         wantCursor = on
@@ -861,6 +902,8 @@ class ScreenClient(
 
     companion object {
         val DEFAULT_STUN = listOf("stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302", "stun:stun.cloudflare.com:3478")
+        /** The PC waits 15 s before a restart or shutdown; "Cancel shutdown" stays offered for this long after it was accepted. */
+        private const val SHUTDOWN_WINDOW_MS = 20_000L
         private const val MAX_ATTEMPTS = 4
         private const val NO_ANSWER_ATTEMPTS = 2
     }

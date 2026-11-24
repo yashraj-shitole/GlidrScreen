@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { EventEmitter } = require('events');
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, clipboard, session, shell, powerMonitor, powerSaveBlocker } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, screen, clipboard, session, shell, powerMonitor, powerSaveBlocker, dialog } = require('electron');
 
 const SELFTEST = process.argv.includes('--selftest');
 if (SELFTEST) app.setPath('userData', path.join(os.tmpdir(), 'glidr-screen-selftest-' + process.pid));
@@ -33,6 +33,7 @@ const permissions = require('./permissions');
 const wol = require('./wol');
 const diagnose = require('./diagnose');
 const { Presence } = require('./presence');
+const Actions = require('./actions');
 
 let store, signaling, input, core, engineWin, uiWin, tray, updates, pauseTimer, keepAwake;
 let notifiedVersion = null;
@@ -128,6 +129,10 @@ function linkFor(slot) {
   return crypto.toLink(key, store.get('hostName'), store.get('signalBase'), w?.mac, w?.broadcast);
 }
 
+function actionCfg() {
+  return { allowActions: store.get('allowActions'), allowControl: store.get('allowControl'), actionsEnabled: store.get('actionsEnabled'), launchers: store.get('launchers') };
+}
+
 async function buildState() {
   store.pruneSlots();
   const snap = core.snapshot();
@@ -153,6 +158,13 @@ async function buildState() {
       codec: store.get('codec'), signalBase: store.get('signalBase'),
       autostart: app.getLoginItemSettings(LOGIN_ITEM).openAtLogin,
       keepAwake: store.get('keepAwake'), endOnLock: store.get('endOnLock'), shareAudio: store.get('shareAudio'),
+      allowActions: store.get('allowActions') === true,
+    },
+    // The PC's own list (paths and arguments are shown here only; the phone is only ever sent id, label and danger).
+    actions: {
+      items: Actions.catalogue(actionCfg()),
+      launchers: Actions.sanitizeLaunchers(store.get('launchers')).map((l) => ({ id: l.id, label: l.label, path: l.path, args: l.args })),
+      max: Actions.MAX_LAUNCHERS,
     },
     pausedLabel: snap.sharing ? null : pauseTimer.label(),
     version: app.getVersion(),
@@ -225,7 +237,7 @@ function registerIpc() {
         store.revoke(arg); store.createSlot(); core.refreshSlots(); break;
       case 'setting': {
         const patch = {};
-        for (const k of ['allowControl', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
+        for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -236,8 +248,39 @@ function registerIpc() {
         store.set(patch);
         if (patch.signalBase) signaling.setBase(patch.signalBase);
         if ('allowControl' in patch) core.controlChanged();
+        if ('allowActions' in patch) core.actionsChanged();
         if ('allowFiles' in patch) core.filesChanged();
         if ('keepAwake' in patch) keepAwake.sync();
+        break;
+      }
+      // Quick actions (see actions.js). Launchers are created here, on the PC, and nowhere else.
+      case 'actionToggle': { // {id, on}: switch one action on or off for the phone; unknown ids are ignored
+        const list = arg && Actions.setEnabled(actionCfg(), arg.id, arg.on);
+        if (list) { store.set({ actionsEnabled: list }); core.actionsChanged(); }
+        break;
+      }
+      case 'launcherAdd': { // {label, path, args}: validated strictly; a new launcher starts switched off
+        const r = Actions.addLauncher(store.get('launchers'), arg);
+        if (r.ok) { store.set({ launchers: r.launchers }); core.actionsChanged(); }
+        result = { ok: r.ok, error: r.error };
+        break;
+      }
+      case 'launcherRemove': {
+        if (!arg || typeof arg.id !== 'string') break;
+        const enabled = store.get('actionsEnabled');
+        store.set({
+          launchers: Actions.removeLauncher(store.get('launchers'), arg.id),
+          ...(Array.isArray(enabled) ? { actionsEnabled: enabled.filter((id) => id !== arg.id) } : {}),
+        });
+        core.actionsChanged();
+        break;
+      }
+      case 'launcherPick': { // native file picker, so a path is chosen rather than typed; returns the path or ''
+        const r = await dialog.showOpenDialog(uiWin, {
+          title: 'Choose a program', properties: ['openFile'],
+          filters: [{ name: 'Programs and shortcuts', extensions: ['exe', 'bat', 'cmd', 'lnk'] }],
+        });
+        result = r.canceled || !r.filePaths[0] ? '' : r.filePaths[0];
         break;
       }
       case 'copy': clipboard.writeText(String(arg)); break;
