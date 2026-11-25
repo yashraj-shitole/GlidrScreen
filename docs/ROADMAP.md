@@ -88,22 +88,26 @@ Effort: S = under a day, M = a few days, L = a week or more.
 Items 1, 3, 4, 7 and 12 are all small and high value. Items 2 and 6 would then make the biggest improvement to the
 viewing experience.
 
-## Status (2026-11-25)
+## Status (2026-11-26)
 
-Built and merged into `main` (unit-tested, and the host self-test streams real video end to end; behaviour between a
-real phone and PC is still untested):
+Built and merged into `main` (unit-tested; the host self-test streamed real video before the last batch; behaviour
+between a real phone and PC is still untested for most features):
 
 * Tier 1: 1 keep awake and resume repair, 2 cursor-follow zoom, 3 shortcut deck and three-finger swipes,
   4 clipboard sync, 5 system audio (opt-in), 6 full-width landscape layout, 7 adaptive fps and data saver,
-  8 presence ("PC last seen"), 9 hardware keyboard and mouse.
+  8 presence ("PC last seen"), 9 hardware keyboard and mouse, 10 installer with a checked silent update.
 * Tier 2: 11 file transfer (phone to PC, plus the Android share sheet), 12 encrypted pairing keys,
   14 connection self-test and a failure-stage line, 15 Wake-on-LAN, 16 lock-aware sessions,
   17 window sharing, 18 edge zones and precision mode, 19 one-handed layout, 20 app lock (PIN, no biometrics),
   21 per-phone view-only and expiring access with guest pairing, 22 timed pause, 23 automatic bandwidth
   adaptation with Auto / Fast / Sharp modes, 24 per-PC input profiles, 25 accessibility (labels and
-  simple-gesture buttons).
-* Tier 3: 32 quick actions (lock, sleep, restart, shutdown and PC-defined launchers; off by default, confirm on the
-  dangerous ones), 33 `glidr-screen://` automation links (pause, resume, disconnect only).
+  simple-gesture buttons), 26 VP9 and AV1 (opt-in, only when the phone says it can decode them).
+* Tier 3: 27 Glidr integration (on the `screen-integration` branch of the Glidr repo, not merged), 30 session
+  recording (off by default, the phone is told), 31 LAN signaling (the phone tries the PC directly on the local
+  network first), 32 quick actions (lock, sleep, restart, shutdown and PC-defined launchers; off by default),
+  33 `glidr-screen://` automation links, 35 phone camera and microphone to the PC (a preview window and an audio
+  output, not a virtual webcam: no driver is included).
 
-Not built: 10 installer and auto-update, 13 connect alert and session log (skipped on purpose), 26 AV1/VP9,
-27-31, 34 and 35. App lock uses a PIN only: biometrics need a library the project does not use yet.
+Not built: 13 connect alert and session log, 28 macOS host, 34 key rotation (all skipped on purpose);
+29 local pointer overlay is infeasible: no capture method in Electron 44 hides the pointer (see ARCHITECTURE).
+App lock uses a PIN only: biometrics need a library the project does not use yet.
