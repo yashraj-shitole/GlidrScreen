@@ -517,8 +517,9 @@ The recording is a second copy of what the phone sees, at the PC's own capture s
 ## Phone camera and microphone
 
 The phone can send its **camera** and / or **microphone** to the PC over the connection that is already running. The PC
-shows the camera in a window and plays the microphone through an audio output the PC owner chooses. It is **off by
-default** and needs the PC owner's say-so. Older hosts ignore `renegotiate` (the phone then gets no answer and gives up
+shows the camera in a window and plays the microphone through an audio output the PC owner chooses. It is **on by
+default**, with no approval step: the PC owner can switch it off in the Settings card, and the phone asks its own user for
+the Android camera and microphone permissions. Older hosts ignore `renegotiate` (the phone then gets no answer and gives up
 after 20 s); older phones never send it.
 
 **This is not a webcam or a microphone device.** Windows cannot expose a network camera or microphone without a
@@ -549,7 +550,7 @@ Rules the host enforces, in this order, on every `renegotiate`:
    PC audio, and the data channels as one SCTP section), so those pass; a second `m=application`, `text`, `message` or any
    other kind does not. The SDP is never logged.
 3. **Policy**, only for an offer in which the phone sends something: the setting `allowPhoneMedia` ("Allow the phone to
-   send its camera and microphone", default **off**), the PC-wide "Allow remote control" and a phone that is not view only
+   send its camera and microphone", default **on**), the PC-wide "Allow remote control" and a phone that is not view only
    must all hold, else `disabled`. An offer in which the phone sends nothing (it is stopping) is always answered, so a
    phone is never left half-way through a negotiation.
 4. The engine applies it (`setRemoteDescription`, `createAnswer`, `setLocalDescription`, gathering) and the answer is sent

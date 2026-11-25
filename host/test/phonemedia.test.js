@@ -231,15 +231,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'glidr-pm-'));
     const a = new Store(dir, { safeStorage: null });
-    assert.strictEqual(a.get('allowPhoneMedia'), false); // off by default
+    assert.strictEqual(a.get('allowPhoneMedia'), true); // on by default: no approval step, the owner can switch it off
     assert.strictEqual(a.get('phoneMediaSink'), '');
-    a.set({ allowPhoneMedia: true, phoneMediaSink: 'cable' });
+    a.set({ allowPhoneMedia: false, phoneMediaSink: 'cable' });
     const b = new Store(dir, { safeStorage: null });
-    assert.deepStrictEqual([b.get('allowPhoneMedia'), b.get('phoneMediaSink')], [true, 'cable']);
-    // a hand-edited file cannot switch it on with a truthy non-boolean or break the sink
+    assert.deepStrictEqual([b.get('allowPhoneMedia'), b.get('phoneMediaSink')], [false, 'cable'], 'switching it off sticks');
+    // a hand-edited file with a non-boolean falls back to the default and cannot break the sink
     fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ allowPhoneMedia: 'yes', phoneMediaSink: { a: 1 } }));
     const c = new Store(dir, { safeStorage: null });
-    assert.deepStrictEqual([c.get('allowPhoneMedia'), c.get('phoneMediaSink')], [false, '']);
+    assert.deepStrictEqual([c.get('allowPhoneMedia'), c.get('phoneMediaSink')], [true, '']);
   }
   console.log('ok');
 })().catch((e) => { console.error(e); process.exit(1); });
