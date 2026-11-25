@@ -152,7 +152,8 @@ async function hostStart(cmd) {
 
   const dc = pc.createDataChannel('ctl', { ordered: true });
   s.dc = dc;
-  dc.onopen = () => emit({ t: 'dc-open', sid: s.sid });
+  recInit(s, cmd, dc); // session recording: block "session recording" near the end of this file
+  dc.onopen =() => emit({ t: 'dc-open', sid: s.sid });
   dc.onclose = () => emit({ t: 'dc-close', sid: s.sid });
   dc.onmessage = (e) => emit({ t: 'ctl', sid: s.sid, data: String(e.data) });
   // File transfer from the phone: its own reliable channel, so megabytes of chunks never queue behind input.
@@ -189,6 +190,7 @@ async function hostSwitch(cmd) {
   const old = s.stream;
   await s.sender.replaceTrack(stream.getVideoTracks()[0]);
   s.stream = stream;
+  recRestart(s); // session recording: the file keeps going on the new picture (next segment)
   s.capFps = s.q.fps; // the new capture was opened with the current fps
   old.getVideoTracks().forEach((t) => t.stop()); // not getTracks(): that would also stop the audio track
   await applyQuality();
@@ -204,6 +206,7 @@ function hostSend(cmd) {
 function hostStop(sid) {
   if (!host || (sid && host.sid !== sid)) return;
   clearInterval(host.statsTimer);
+  recStop(host); // session recording
   try { host.dc?.close(); } catch { /* ignore */ }
   try { host.fdc?.close(); } catch { /* ignore */ }
   try { host.pc.close(); } catch { /* ignore */ }
@@ -298,6 +301,109 @@ async function viewerStats() {
     w: inbound?.frameWidth, h: inbound?.frameHeight, codec, decoder: inbound?.decoderImplementation, blank,
   });
 }
+
+// ---------------------------------------------------------------- session recording (see src/recording.js, docs/PROTOCOL.md "Recording")
+// Only runs when the PC owner switched "Record sessions on this PC" on: the `start` command carries record:true, or the
+// host sends `rec` {on}. MediaRecorder records the captured screen (and the shared audio) next to the WebRTC sender, so
+// the live stream is never touched: every step is in a try / catch, and when the main process lags (chunks not yet
+// acknowledged with `rec-ack` pass REC_MAX_PENDING) chunks are dropped instead of queued. A monitor / window switch
+// starts a new recorder on the new picture; its chunks carry the next `seg` number and the main process rolls to the
+// next file. The final chunk of a recorder that is stopped with the session is not sent (the file is closed by then).
+const REC_TIMESLICE_MS = 2000;
+const REC_BITRATE = 4_000_000;
+const REC_MAX_PENDING = 32 * 1024 * 1024;
+const REC_MIMES = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+
+function recMime() {
+  for (const m of REC_MIMES) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch { /* next */ } }
+  return '';
+}
+
+function recInit(s, cmd, dc) {
+  try {
+    s.rec = { want: cmd.record === true, seg: 0, recorder: null, pending: 0, dropped: 0 };
+    // "live" = the control channel is open
+    dc.addEventListener?.('open', () => { if (host === s && s.rec?.want) recStart(s); });
+  } catch (e) { console.warn('recording init', e); }
+}
+
+function recStart(s) {
+  try {
+    const r = s.rec;
+    if (!r || r.recorder || host !== s) return;
+    r.want = true;
+    const vt = s.stream.getVideoTracks()[0];
+    if (!vt || vt.readyState !== 'live') return;
+    const tracks = [vt];
+    if (s.audioTrack && s.audioTrack.readyState === 'live') tracks.push(s.audioTrack);
+    const mimeType = recMime();
+    const rec = new MediaRecorder(new MediaStream(tracks), { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: REC_BITRATE });
+    const seg = ++r.seg;
+    rec.ondataavailable = (ev) => { recChunk(s, seg, ev.data); };
+    rec.onerror = () => recFail(s, 'recorder error');
+    r.recorder = rec;
+    rec.start(REC_TIMESLICE_MS);
+  } catch (e) { recFail(s, e); }
+}
+
+async function recChunk(s, seg, blob) {
+  const r = s.rec;
+  try {
+    if (host !== s || !r || !blob || blob.size === 0) return;
+    if (r.pending + blob.size > REC_MAX_PENDING) { // the main process lags: drop, the live stream comes first
+      if (++r.dropped === 1) emit({ t: 'log', message: 'recording: chunks are being dropped (the PC cannot write fast enough)' });
+      return;
+    }
+    r.pending += blob.size; // counted before the await, so chunks that finish together are counted together
+    const data = new Uint8Array(await blob.arrayBuffer()); // typed arrays cross the bridge like the file transfer's bytes
+    if (host !== s) { r.pending = Math.max(0, r.pending - blob.size); return; }
+    emit({ t: 'rec-chunk', sid: s.sid, seg, data });
+  } catch (e) { recFail(s, e); }
+}
+
+/** Stops the recorder without telling anyone (session end, switch, or the host asked). */
+function recStop(s) {
+  try {
+    const r = s?.rec;
+    if (!r) return;
+    r.want = false;
+    const rec = r.recorder;
+    r.recorder = null;
+    if (rec && rec.state !== 'inactive') rec.stop(); // its last chunk still arrives (and is dropped if the session is over)
+  } catch { /* the recorder is gone already */ }
+}
+
+function recRestart(s) {
+  try {
+    const r = s.rec;
+    if (!r || !r.recorder) return;
+    recStop(s);
+    r.want = true;
+    recStart(s);
+  } catch (e) { recFail(s, e); }
+}
+
+/** Recording broke: stop it and tell the host (which tells the phone), the session goes on. */
+function recFail(s, why) {
+  try {
+    recStop(s);
+    emit({ t: 'log', message: 'recording stopped: ' + String(why && why.message || why) });
+    emit({ t: 'rec-stop', sid: s.sid });
+  } catch { /* nothing more to do */ }
+}
+
+// Handled here, next to the main command queue: acknowledgements must not wait behind a slow start or switch.
+bridge.onCmd((cmd) => {
+  try {
+    const s = host;
+    if (!s || !s.rec || cmd.sid !== s.sid) return;
+    if (cmd.t === 'rec-ack') s.rec.pending = Math.max(0, s.rec.pending - (Number(cmd.n) || 0));
+    else if (cmd.t === 'rec') {
+      if (cmd.on === true) { s.rec.want = true; if (s.dc?.readyState === 'open') recStart(s); } else recStop(s);
+    }
+  } catch (e) { console.warn('recording command', e); }
+});
+// ---------------------------------------------------------------- end session recording
 
 async function run(cmd) {
   try {

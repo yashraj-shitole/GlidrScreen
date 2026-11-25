@@ -104,6 +104,7 @@ with a debug key and the PC app and installer are not code-signed, so Windows Sm
 * Per phone: a *View only* switch, an access limit (always, 1 hour, 1 day, 7 days), and *Pair a guest* for a one-hour
   view-only link.
 * Optional: share the PC's audio, end the session when the PC locks, two-way clipboard (the phone asks for it).
+* Optional: *Record sessions on this PC* saves what the phone views to `VideosGlidr` (off by default; the phone shows "PC is recording" while it runs).
 * *Test connection* checks the signaling server, STUN and the PC's clock.
 * `glidr-screen://pause`, `resume` and `disconnect` links for scripts and Stream Deck buttons (nothing else is accepted).
 * Advanced: PC name and your own signaling (ntfy) server.

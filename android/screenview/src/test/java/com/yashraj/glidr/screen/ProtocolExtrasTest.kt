@@ -119,6 +119,21 @@ class ProtocolExtrasTest {
         assertEquals(HostEvent.Locked(false), HostEvents.parse(JSONObject("""{"t":"locked","on":false}""")))
     }
 
+    @Test fun parsesRecording() {
+        assertEquals(HostEvent.Recording(true), HostEvents.parse(JSONObject("""{"t":"recording","on":true}""")))
+        assertEquals(HostEvent.Recording(false), HostEvents.parse(JSONObject("""{"t":"recording","on":false}""")))
+        // a message without a usable "on" never claims a recording
+        assertEquals(HostEvent.Recording(false), HostEvents.parse(JSONObject("""{"t":"recording"}""")))
+        assertEquals(HostEvent.Recording(false), HostEvents.parse(JSONObject("""{"t":"recording","on":null}""")))
+        assertEquals(HostEvent.Recording(false), HostEvents.parse(JSONObject("""{"t":"recording","on":"maybe"}""")))
+    }
+
+    @Test fun helloRecordingFlag() {
+        assertEquals(true, HostEvents.helloExtras(JSONObject("""{"t":"hello","recording":true}""")).recording)
+        assertEquals(false, HostEvents.helloExtras(JSONObject("""{"t":"hello","recording":false}""")).recording)
+        assertNull(HostEvents.helloExtras(JSONObject("""{"t":"hello","v":1}""")).recording) // older host
+    }
+
     @Test fun unknownTypesAreIgnored() = assertNull(HostEvents.parse(JSONObject("""{"t":"whatever"}""")))
 
     @Test fun helloExtrasPresent() {

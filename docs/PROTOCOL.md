@@ -475,6 +475,45 @@ switched off. Launcher paths and arguments are never sent to the phone (only `id
 
 The host logs only the action id and the outcome (at debug level), never a path or an argument.
 
+## Recording
+
+The PC owner can save what the phone is viewing to a video file on the PC. It is **off by default** (setting
+`recordSessions`, "Record sessions on this PC"), and the phone is always told while it happens. There is no way for the
+phone to start, stop or hide it.
+
+PC to phone (on `ctl`):
+
+| message | meaning |
+|---------|---------|
+| `hello.recording` | `true` when the PC is recording this session from the moment the channel opens, else `false`. Older hosts omit it (treat as `false`) |
+| `{"t":"recording","on":bool}` | a recording started or stopped during the session (the PC owner switched the setting, the 2 GB limit was reached, or the PC could not keep recording). Anything but `"on":true` means "not recording" |
+
+The phone shows a red dot and "PC is recording" over the picture for as long as it is `true`, and resets it when the
+session ends. A host that does not record never sends `recording`; a phone that does not know it ignores it (and
+then cannot show the tag, so upgrade the phone app before switching recording on).
+
+Privacy rules the host follows:
+
+* Off unless the PC owner switches it on; the setting is read from the PC's own settings file and only a real `true`
+  counts. Switching it on or off applies at once, also in a live session.
+* The disclosure comes first: `hello.recording` is `true` in the first message of the session, and `recording` is sent
+  when the PC starts recording, before any video is written.
+* Files are only ever created in `<Videos>Glidr` (`app.getPath('videos')`), named `Glidr-<phone name>-<YYYYMMDD-HHMMSS>.webm`
+  (the phone name is sanitised like received files: no path characters, no reserved Windows names, at most 40
+  characters). A name that exists is never overwritten (`-2`, `-3`, ...). A monitor or window switch continues in
+  `...-2.webm`.
+* A file stops at 2 GB (the phone is told `recording` `false`), files under 1 KB are deleted, and the file is closed when
+  the session ends for any reason: viewer left, time limit, engine crash, app quit.
+* The tray tooltip says "Recording", the live card in the control panel shows "Recording", and a tray balloon at the end
+  says "Saved a recording of <phone name>" (name only, no path).
+* File names and paths are never logged (only at debug level, `GLIDR_DEBUG`).
+
+Inside the PC app: the engine window records the captured screen (and the shared audio) with `MediaRecorder`
+(`video/webm;codecs=vp9,opus`, falling back to vp8 and plain `video/webm`; 4 Mbit/s; a chunk every 2 s) beside the WebRTC
+sender, so the live stream is not touched. Chunks go to the main process as `rec-chunk` events with a segment number;
+the main process answers each with `rec-ack`, and the engine drops chunks while too much is unacknowledged (32 MB).
+The recording is a second copy of what the phone sees, at the PC's own capture size: it is not what the phone decoded.
+
 ## Security model
 
 * Possession of the 128-bit pairing key is the only credential. It is created on the PC, shown on the PC screen, and

@@ -221,13 +221,15 @@ object ClipLimits {
 }
 
 /** Fields the host adds to `hello`; each is null when an older host did not send it. */
-data class HelloExtras(val locked: Boolean?, val audio: Boolean?, val fps: Int?)
+data class HelloExtras(val locked: Boolean?, val audio: Boolean?, val fps: Int?, val recording: Boolean? = null)
 
 /** Host-to-phone messages added in protocol v1.1 (clipboard, cursor, lock state). Unknown or malformed ones give null. */
 sealed interface HostEvent {
     data class Clip(val text: String) : HostEvent
     data class Cursor(val x: Float, val y: Float) : HostEvent
     data class Locked(val on: Boolean) : HostEvent
+    /** The PC started / stopped recording this session (docs/PROTOCOL.md, "Recording"). */
+    data class Recording(val on: Boolean) : HostEvent
 }
 
 object HostEvents {
@@ -242,6 +244,7 @@ object HostEvents {
             else HostEvent.Cursor(x.toFloat().coerceIn(0f, 1f), y.toFloat().coerceIn(0f, 1f))
         }
         "locked" -> HostEvent.Locked(m.optBoolean("on", false))
+        "recording" -> HostEvent.Recording(m.optBoolean("on", false)) // anything but a true boolean means "not recording"
         else -> null
     }
 
@@ -249,6 +252,7 @@ object HostEvents {
         locked = if (m.has("locked")) m.optBoolean("locked") else null,
         audio = if (m.has("audio")) m.optBoolean("audio") else null,
         fps = m.optInt("fps", 0).takeIf { it > 0 },
+        recording = if (m.has("recording")) m.optBoolean("recording") else null,
     )
 }
 

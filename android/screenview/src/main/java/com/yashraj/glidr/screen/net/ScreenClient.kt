@@ -133,6 +133,10 @@ class ScreenClient(
     private val _locked = MutableStateFlow(false)
     /** True while the PC is locked (the lock screen cannot be captured or controlled). Reset when the session ends. */
     val hostLocked: StateFlow<Boolean> = _locked.asStateFlow()
+
+    private val _recording = MutableStateFlow(false)
+    /** True while the PC records this session (`hello.recording`, `recording`). Reset when the session ends. */
+    val recording: StateFlow<Boolean> = _recording.asStateFlow()
     private val _quickActions = MutableStateFlow<List<QuickAction>>(emptyList())
     /** What the PC lets this phone do (lock, sleep, ...): only the actions the PC owner switched on, empty from an older host. */
     val quickActions: StateFlow<List<QuickAction>> = _quickActions.asStateFlow()
@@ -513,6 +517,7 @@ class ScreenClient(
         _activeKind.value = SourceKind.Monitor
         _activeWindow.value = null
         _locked.value = false
+        _recording.value = false
         _quickActions.value = emptyList()
         shutdownJob?.cancel()
         _shutdownPending.value = false
@@ -708,6 +713,7 @@ class ScreenClient(
                 applyHostName(m.optString("host"))
                 val extras = HostEvents.helloExtras(m)
                 extras.locked?.let { _locked.value = it }
+                _recording.value = extras.recording == true // missing (older host) = not recording
                 extras.fps?.let { _fps.value = it }
                 if (extras.audio == false) _audioActive.value = false
                 _quickActions.value = QuickAction.parseAll(m.optJSONArray("actions")) // missing (older host) = none
@@ -766,6 +772,7 @@ class ScreenClient(
             "pong" -> _rtt.value = (System.currentTimeMillis() - m.optLong("ts")).toInt().coerceAtLeast(0)
             else -> when (val ev = HostEvents.parse(m)) {
                 is HostEvent.Locked -> _locked.value = ev.on
+                is HostEvent.Recording -> _recording.value = ev.on
                 is HostEvent.Cursor -> if (wantCursor) _cursor.value = ev.x to ev.y
                 is HostEvent.Clip -> if (_clipSync.value) { _lastClip.value = ev.text; _incomingClip.tryEmit(ev.text) }
                 null -> {}
