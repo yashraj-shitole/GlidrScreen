@@ -15,7 +15,7 @@ Video goes **directly phone <-> PC over WebRTC** (24 fps, encrypted). There is n
 - **PC installer** [GlidrScreen-2.1.0-setup.exe](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.1.0/GlidrScreen-2.1.0-setup.exe): a one-click, per-user install into `%LOCALAPPDATA%\Programs\glidr-screen-host` (no administrator rights), with a Start menu shortcut. An installed copy can update itself silently, see [Updates](#updates). Pairings and settings live in your user profile and survive updates and uninstalls.
 
 All downloads are on the [Releases page](https://github.com/yashraj-shitole/GlidrScreen/releases). The APK is signed
-with a debug key and the PC app and installer are not code-signed, so Windows SmartScreen warns on first run ("Windows protected your PC": choose **More info**, then **Run anyway**). Files the app downloads for a silent update are not marked as coming from the internet, so a silent update should not show the warning again (not verified yet).
+with the project's own release key (not Google Play's) and the PC app and installer are not code-signed, so Windows SmartScreen warns on first run ("Windows protected your PC": choose **More info**, then **Run anyway**). Files the app downloads for a silent update are not marked as coming from the internet, so a silent update should not show the warning again (not verified yet).
 
 ## Use it
 
@@ -165,9 +165,11 @@ version starts by itself a few seconds later. Safeguards:
 **PC, portable zip** (unzipped anywhere else): unchanged. The banner links to the download and you replace the folder
 by hand; a portable copy never installs anything.
 
+**Upgrading from 2.0.0 (phone): uninstall the old Glidr Screen first, once.** 2.0.0 was signed with a temporary debug key that was lost when it was regenerated, and Android refuses to update an app that was signed with a different key ("App not installed"). Uninstalling removes the paired PCs, so pair again afterwards. From 2.1.0 on, every release is signed with the same key and updates install in place.
+
 To publish: bump `version` in `host/package.json` and `versionName`/`versionCode` in `android/app/build.gradle.kts`,
 run `cd host && npm run dist && npm run installer` (the installer is written to `host/dist-installer/GlidrScreen-<version>-setup.exe`),
-then create a GitHub release tagged `vX.Y.Z` with the phone `.apk`, the installer and the portable zip of
+then build the phone APK with `cd android && gradlew.bat :app:assembleRelease` (it is signed with the release key from `~/.glidr/glidrscreen-signing.properties`: `storeFile`, `storePassword`, `keyAlias`, `keyPassword`, or the file named by `-Pglidr.signing.properties=`; **back up that keystore, losing it means every user has to uninstall and reinstall again**; without it the build is unsigned and will not install), then create a GitHub release tagged `vX.Y.Z` with the phone `.apk`, the installer and the portable zip of
 `host/dist/GlidrScreen-win32-x64` (`*win*.zip`) attached. GitHub adds the `digest` to every asset by itself; the silent
 update needs it.
 
