@@ -1,7 +1,9 @@
 'use strict';
 // "Check for updates": asks GitHub for the latest published release and compares its tag with this build.
-// Only notifies and links to the download; nothing is downloaded or installed automatically.
+// This module only looks and links; the optional silent install lives in updater.js and always needs a click.
+// It also records the release's installer asset (name, size, sha256 digest) for updater.js.
 const { EventEmitter } = require('events');
+const { pickInstaller } = require('./updater');
 
 const RELEASES_REPO = 'yashraj-shitole/GlidrScreen';
 const CHECK_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -30,7 +32,7 @@ class UpdateChecker extends EventEmitter {
     this.repo = opts.repo || RELEASES_REPO;
     this.fetch = opts.fetchImpl || fetch;
     // status: idle | checking | latest | available | none (no release published yet) | error
-    this.state = { status: 'idle', current, latest: null, page: null, download: null, checkedAt: 0, error: null };
+    this.state = { status: 'idle', current, latest: null, page: null, download: null, installer: null, checkedAt: 0, error: null };
     this.timer = null;
   }
 
@@ -57,13 +59,16 @@ class UpdateChecker extends EventEmitter {
       const rel = await res.json();
       const latest = String(rel.tag_name || '').replace(/^v/i, '');
       if (!latest) throw new Error('release has no tag');
-      // the PC package: an .exe or a Windows .zip; otherwise the release page has everything
-      const asset = (rel.assets || []).find((a) => /\.exe$/i.test(a.name) || /win.*\.zip$/i.test(a.name));
+      // the PC package for a manual download: a Windows .zip or an .exe; otherwise the release page has everything
+      const assets = rel.assets || [];
+      const asset = assets.find((a) => /win.*\.zip$/i.test(a.name)) || assets.find((a) => /\.exe$/i.test(a.name));
+      // the installer (*-setup.exe) with the digest GitHub computed: what a silent update verifies against
+      const installer = pickInstaller(assets, this.repo);
       const newer = compareVersions(latest, this.current) > 0;
       const page = /^https:\/\//.test(rel.html_url || '') ? rel.html_url : `https://github.com/${this.repo}/releases/latest`;
       this.#set({
         status: newer ? 'available' : 'latest', latest, page,
-        download: asset?.browser_download_url || page, checkedAt: Date.now(),
+        download: asset?.browser_download_url || page, installer, checkedAt: Date.now(),
       });
     } catch (e) {
       this.#set({ status: 'error', error: e.message || String(e), checkedAt: Date.now() });

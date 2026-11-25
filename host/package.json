@@ -7,16 +7,54 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "test": "node test/crypto.test.js && node test/updates.test.js && node test/autostart.test.js && node test/store.test.js && node test/signaling-reconnect.test.js && node test/pausetimer.test.js && node test/power.test.js && node test/links.test.js && node test/media.test.js && node test/sync.test.js && node test/host-ctl.test.js && node test/offer-size.test.js && node test/permissions.test.js && node test/host-perms.test.js && node test/wol.test.js && node test/diagnose.test.js && node test/adaptation.test.js && node test/engine-adaptation.test.js && node test/quality-mode.test.js && node test/presence.test.js && node test/presence-signaling.test.js && node test/files.test.js && node test/host-files.test.js && node test/windows.test.js && node test/host-windows.test.js && node test/actions.test.js && node test/host-actions.test.js && node test/codecs.test.js && node test/host-codecs.test.js",
+    "test": "node test/crypto.test.js && node test/updates.test.js && node test/autostart.test.js && node test/store.test.js && node test/signaling-reconnect.test.js && node test/pausetimer.test.js && node test/power.test.js && node test/links.test.js && node test/media.test.js && node test/sync.test.js && node test/host-ctl.test.js && node test/offer-size.test.js && node test/permissions.test.js && node test/host-perms.test.js && node test/wol.test.js && node test/diagnose.test.js && node test/adaptation.test.js && node test/engine-adaptation.test.js && node test/quality-mode.test.js && node test/presence.test.js && node test/presence-signaling.test.js && node test/files.test.js && node test/host-files.test.js && node test/windows.test.js && node test/host-windows.test.js && node test/actions.test.js && node test/host-actions.test.js && node test/codecs.test.js && node test/host-codecs.test.js && node test/updater.test.js && node test/updater-ui.test.js",
     "selftest": "electron . --selftest",
-    "dist": "node scripts/pkg.js"
+    "dist": "node scripts/pkg.js",
+    "installer": "node scripts/installer.js"
   },
   "dependencies": {
     "koffi": "^2.9.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@electron/packager": "^18.3.6",
     "electron": "^44.7.0",
-    "@electron/packager": "^18.3.6"
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.yashraj.glidr.screen.host",
+    "productName": "Glidr Screen",
+    "executableName": "GlidrScreen",
+    "artifactName": "GlidrScreen-${version}-setup.exe",
+    "directories": {
+      "output": "dist-installer",
+      "buildResources": "build"
+    },
+    "publish": null,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    }
   }
 }

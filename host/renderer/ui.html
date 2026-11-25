@@ -17,8 +17,9 @@
   </header>
 
   <section id="update" class="card update hidden">
-    <div class="row between"><span><b id="updateTitle"></b><small>Download it, then quit this app and run the new version.</small></span>
-      <button id="updateGet" class="primary auto">Download</button></div>
+    <div class="row between"><span><b id="updateTitle"></b><small id="updateNote">Download it, then quit this app and run the new version.</small></span>
+      <span class="row updateBtns"><button id="updateCancel" class="ghost hidden">Cancel</button><button id="updateGet" class="primary auto">Download</button></span></div>
+    <div id="updateBar" class="bar hidden" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="updateFill"></i></div>
   </section>
 
   <section id="live" class="card hidden">

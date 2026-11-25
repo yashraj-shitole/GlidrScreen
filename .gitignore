@@ -8,3 +8,4 @@ android/local.properties
 *.iml
 .idea/
 .DS_Store
+host/dist-installer/

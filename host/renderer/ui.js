@@ -209,11 +209,51 @@ function renderSettings(s) {
   $('version').textContent = `Glidr Screen ${s.version}`;
 
   const u = s.update || {};
-  $('update').classList.toggle('hidden', u.status !== 'available');
-  $('updateTitle').textContent = `Version ${u.latest} is available`;
+  renderUpdate(u);
   $('updateStatus').textContent = {
     checking: ' (checking...)', latest: ' (up to date)', none: ' (no releases yet)', error: ' (could not check)',
   }[u.status] || '';
+}
+
+// <update-banner> (pure: test/updater-ui.test.js loads this block on its own)
+/** What the update banner shows for the state's `update` object. `action` is the act() name the main button sends. */
+function updateBanner(u) {
+  const i = u.install || {};
+  const busy = i.status === 'downloading' || i.status === 'ready' || i.status === 'error';
+  const out = { show: u.status === 'available' || busy, title: `Version ${i.version || u.latest} is available`, note: '', bad: false,
+    button: 'Download', action: 'openUpdate', arg: undefined, cancel: false, bar: null };
+  if (i.status === 'downloading') {
+    out.button = null; out.cancel = true; out.bar = i.percent || 0;
+    out.note = `Downloading ${i.percent || 0}%`;
+  } else if (i.status === 'ready') {
+    out.button = 'Restart to update'; out.action = 'installUpdate';
+    out.note = 'Ready. The app closes, updates and opens again. Your phones stay paired.';
+  } else if (i.status === 'error') {
+    out.bad = true; out.note = i.error || 'The update failed.';
+    if (i.retry && i.mode === 'install') { out.button = 'Try again'; out.action = 'downloadUpdate'; } else { out.button = 'Open release page'; out.arg = 'page'; }
+  } else if (i.mode === 'install') {
+    out.button = 'Download and install'; out.action = 'downloadUpdate';
+    out.note = 'Installs in the background and restarts the app. Your phones stay paired.';
+  } else {
+    out.note = 'Download it, then quit this app and run the new version.';
+  }
+  return out;
+}
+// </update-banner>
+
+function renderUpdate(u) {
+  const b = updateBanner(u);
+  $('update').classList.toggle('hidden', !b.show);
+  $('updateTitle').textContent = b.title;
+  $('updateNote').textContent = b.note;
+  $('updateNote').classList.toggle('bad', b.bad);
+  $('updateGet').classList.toggle('hidden', !b.button);
+  $('updateGet').textContent = b.button || '';
+  $('updateGet').dataset.action = b.action; $('updateGet').dataset.arg = b.arg || '';
+  $('updateCancel').classList.toggle('hidden', !b.cancel);
+  $('updateBar').classList.toggle('hidden', b.bar === null);
+  $('updateFill').style.width = `${b.bar || 0}%`;
+  $('updateBar').setAttribute('aria-valuenow', String(b.bar || 0));
 }
 
 $('newPairing').onclick = () => window.glidr.act('newPairing');
@@ -264,7 +304,9 @@ $('code').onclick = () => { if (state.pairing) { window.glidr.act('copy', state.
 $('disconnect').onclick = () => window.glidr.act('disconnect');
 $('quit').onclick = (e) => { e.preventDefault(); window.glidr.act('quit'); };
 $('checkUpdate').onclick = (e) => { e.preventDefault(); window.glidr.act('checkUpdate'); };
-$('updateGet').onclick = () => window.glidr.act('openUpdate');
+// the main button sends only a fixed action name (and 'page'); the main process knows the asset and the file
+$('updateGet').onclick = (e) => window.glidr.act(e.currentTarget.dataset.action || 'openUpdate', e.currentTarget.dataset.arg || undefined);
+$('updateCancel').onclick = () => window.glidr.act('cancelUpdate');
 $('sharing').onchange = (e) => window.glidr.act('sharing', e.target.checked);
 for (const id of TOGGLES) $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.checked });
 for (const id of ['quality', 'codec']) $(id).onchange = (e) => window.glidr.act('setting', { [id]: e.target.value });
