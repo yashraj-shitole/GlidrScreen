@@ -25,6 +25,7 @@ const displays = require('./displays');
 const crypto = require('./crypto');
 const icon = require('./icon');
 const { UpdateChecker } = require('./updates');
+const { Updater } = require('./updater');
 const { repairAutostart } = require('./autostart');
 const { PauseTimer, untilLabel, HOUR_MS } = require('./pausetimer');
 const { KeepAwake, wirePower } = require('./power');
@@ -35,7 +36,7 @@ const diagnose = require('./diagnose');
 const { Presence } = require('./presence');
 const Actions = require('./actions');
 
-let store, signaling, input, core, engineWin, uiWin, tray, updates, pauseTimer, keepAwake;
+let store, signaling, input, core, engineWin, uiWin, tray, updates, updater, pauseTimer, keepAwake;
 let notifiedVersion = null;
 const engine = new EventEmitter();
 engine.send = (cmd) => { if (engineWin && !engineWin.isDestroyed()) engineWin.webContents.send('cmd', cmd); };
@@ -168,7 +169,8 @@ async function buildState() {
     },
     pausedLabel: snap.sharing ? null : pauseTimer.label(),
     version: app.getVersion(),
-    update: updates.state,
+    // the renderer gets the update view only: never the installer's address, path or digest
+    update: { ...updates.state, installer: undefined, download: undefined, page: undefined, install: updater.view(updates.state) },
   };
 }
 
@@ -191,7 +193,8 @@ function updateTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Glidr Screen', click: createUiWindow },
     { label: status, enabled: false },
-    ...(u.status === 'available' ? [{ label: `Download update ${u.latest}`, click: () => openLink(u.download) }] : []),
+    ...(updater.state.status === 'ready' ? [{ label: `Restart to update to ${updater.state.version}`, click: () => updater.install() }]
+      : u.status === 'available' ? [{ label: `Download update ${u.latest}`, click: () => openLink(u.download) }] : []),
     ...(s.status === 'streaming' || s.status === 'connecting'
       ? [{ label: 'Disconnect phone', click: () => core.endSession('disconnected on PC', true) }] : []),
     { label: s.sharing ? 'Pause sharing' : 'Resume sharing', click: () => setSharing(!s.sharing) },
@@ -290,7 +293,18 @@ function registerIpc() {
         });
         break;
       case 'checkUpdate': await updates.check(); break;
-      case 'openUpdate': if (updates.state.download) openLink(updates.state.download); break;
+      case 'openUpdate': { // arg 'page' opens the release page. The address always comes from the checker, never the renderer.
+        const u = updates.state;
+        const page = arg === 'page' || (updater.canInstall() && u.installer && updater.view(u).mode !== 'install'); // unverifiable installer: no direct download
+        const url = page ? u.page : u.download;
+        if (url) openLink(url);
+        break;
+      }
+      // Silent update (installed copies only; updater.js refuses anything else). No arguments are read: the asset is the one
+      // the checker recorded, the file lives in the app's temp dir.
+      case 'downloadUpdate': updater.download(updates.state).catch(() => {}); break;
+      case 'cancelUpdate': await updater.cancel(); break;
+      case 'installUpdate': await updater.install(); break;
       case 'quit': quitting = true; app.quit(); break;
       default: break;
     }
@@ -310,7 +324,15 @@ app.whenReady().then(async () => {
   keepAwake = new KeepAwake(powerSaveBlocker, () => !SELFTEST && store.get('sharing') && store.get('keepAwake'));
   core.on('changed', () => { keepAwake.sync(); pushState(); });
   updates = new UpdateChecker(app.getVersion(), { repo: process.env.GLIDR_UPDATE_REPO }); // env: dev aid
+  updater = new Updater({
+    fetchImpl: fetch, fs, spawn: require('child_process').spawn, now: Date.now, tempDir: app.getPath('temp'),
+    execPath: process.execPath, localAppData: process.env.LOCALAPPDATA, platform: process.platform,
+    userAgent: `GlidrScreen/${app.getVersion()}`,
+    quit: () => { quitting = true; app.quit(); }, // the normal quit path: presence marker, sessions end cleanly
+  });
+  updater.on('changed', pushState);
   updates.on('changed', (u) => {
+    updater.sync(u).catch(() => {});
     pushState();
     if (u.status === 'available' && tray && notifiedVersion !== u.latest) {
       notifiedVersion = u.latest; // one balloon per new version

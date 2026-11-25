@@ -12,9 +12,10 @@ Video goes **directly phone <-> PC over WebRTC** (24 fps, encrypted). There is n
 ## Download (v2.0.0)
 - **Phone app:** [GlidrScreen-2.0.0.apk](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.0.0/GlidrScreen-2.0.0.apk). Android 10 or newer; allow installing from your browser or file manager.
 - **PC app:** [GlidrScreen-2.0.0-win-x64.zip](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.0.0/GlidrScreen-2.0.0-win-x64.zip). Unzip anywhere and run `GlidrScreen.exe` (Windows 10 or newer, x64).
+- **PC installer** (releases after v2.0.0 attach `GlidrScreen-<version>-setup.exe`): a one-click, per-user install into `%LOCALAPPDATA%\Programs\Glidr Screen` (no administrator rights), with a Start menu shortcut. An installed copy can update itself silently, see [Updates](#updates). Pairings and settings live in your user profile and survive updates and uninstalls.
 
 All downloads are on the [Releases page](https://github.com/yashraj-shitole/GlidrScreen/releases). The APK is signed
-with a debug key and the PC app is not code-signed, so Windows SmartScreen warns on first run.
+with a debug key and the PC app and installer are not code-signed, so Windows SmartScreen warns on first run ("Windows protected your PC": choose **More info**, then **Run anyway**). Files the app downloads for a silent update are not marked as coming from the internet, so a silent update should not show the warning again (not verified yet).
 
 ## Use it
 
@@ -124,12 +125,28 @@ see [ARCHITECTURE](docs/ARCHITECTURE.md)).
 ## Updates
 
 Both apps ask GitHub for the latest release of **yashraj-shitole/GlidrScreen** (PC: 15 s after start and daily, tray
-menu and panel footer "Check for updates"; phone: on start and from the PC list). A newer version shows a banner with a
-Download button; nothing installs itself. The phone skips the check when Google Play installed it.
+menu and panel footer "Check for updates"; phone: on start and from the PC list). A newer version shows a banner. The phone
+skips the check when Google Play installed it. Nothing ever installs without a click.
+
+**PC, installed copy** (put in place by the installer, so it runs from `%LOCALAPPDATA%\Programs`): the banner offers
+**Download and install**. The app downloads the release's `*-setup.exe` into its temp folder with a progress bar, checks it,
+and then shows **Restart to update**; clicking it starts the installer silently (`/S`) and quits the app, and the new
+version starts by itself a few seconds later. Safeguards:
+
+- only `https` addresses on `github.com` and `*.githubusercontent.com` are fetched, and every redirect is checked again;
+- the file must match the SHA-256 digest GitHub publishes for the release asset and its declared size (at most 300 MB);
+  a release without a digest, a mismatch, an error or **Cancel** deletes the file, and the banner falls back to the
+  release page link ("Open release page");
+- the file is hashed again right before it is started.
+
+**PC, portable zip** (unzipped anywhere else): unchanged. The banner links to the download and you replace the folder
+by hand; a portable copy never installs anything.
 
 To publish: bump `version` in `host/package.json` and `versionName`/`versionCode` in `android/app/build.gradle.kts`,
-then create a GitHub release tagged `vX.Y.Z` with the phone `.apk` and the PC package (an `.exe` or a `*win*.zip` of
-`host/dist/GlidrScreen-win32-x64`) attached.
+run `cd host && npm run dist && npm run installer` (the installer is written to `host/dist-installer/GlidrScreen-<version>-setup.exe`),
+then create a GitHub release tagged `vX.Y.Z` with the phone `.apk`, the installer and the portable zip of
+`host/dist/GlidrScreen-win32-x64` (`*win*.zip`) attached. GitHub adds the `digest` to every asset by itself; the silent
+update needs it.
 
 ## Test
 
