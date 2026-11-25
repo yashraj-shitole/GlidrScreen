@@ -52,7 +52,7 @@ known-answer vectors (`host/test/crypto.test.js`, `SignalCryptoTest.kt`).
 
 | t | from | fields | meaning |
 |---|------|--------|---------|
-| `req` | p | `sid`, `n` (device name), `ts` | phone wants a session. `sid` is random per attempt |
+| `req` | p | `sid`, `n` (device name), `ts`, optional `dec` | phone wants a session. `sid` is random per attempt. `dec` lists the video codecs the phone can decode, see *Codecs* |
 | `offer` | h | `sid`, `sdp`, `host`, `v` | PC's offer, all ICE candidates included (no trickle) |
 | `answer` | p | `sid`, `sdp` | phone's answer, candidates included |
 | `busy` / `deny` | h | `sid`, `reason` (deny: `paused`, `no display` or `expired`) | another phone is connected / connection refused. `expired`: this phone's access has ended (see *Per-phone permissions*); the pairing is kept on the PC and works again once access is renewed there |
@@ -138,8 +138,21 @@ when Wake-on-LAN is enabled in the PC's BIOS and in the network adapter's settin
   (see *Audio* below).
 * Frame rate is per session: **24 fps by default**, or what the phone asks for in `quality` (see the table below).
   The capture `maxFrameRate`, the encoder `maxFramerate` and `degradationPreference = maintain-framerate` all follow it.
-* Codec preference H.264 (hardware encode where available), then VP8. Quality presets cap resolution/bitrate:
+* Codec preference H.264 (hardware encode where available), then VP8 (VP9 and AV1 on request, see *Codecs*). Quality presets cap resolution/bitrate:
   `auto` 1080p / 6 Mbit/s, `low` 540p / 1.2, `balanced` 720p / 3, `high` 1440p / 9. Congestion control is WebRTC's own.
+
+### Codecs
+
+The phone's `req` may carry `"dec":["h264","vp8","vp9","av1"]`: the lower-case names of the video codecs it can really
+**decode** (from the decoder factory's supported list, not a guess), de-duplicated, at most these four names. The host
+ignores the field when it is not an array of 1 to 8 of those strings, and then treats the phone as an older one.
+
+* No (or invalid) `dec`: the offer holds H.264 then VP8, exactly as before. VP9 and AV1 are never offered.
+* `dec` present: the offer only holds codecs the phone listed, so a missing decoder never produces a black picture.
+* The host setting `codec` is `auto`, `h264`, `vp8`, `vp9` or `av1`. `auto` never picks VP9 or AV1 (they can be heavy
+  to encode on the PC); they are explicit opt-ins. With `vp9` / `av1` the offer is that codec, then H.264, then VP8,
+  and only if the phone listed it. If it did not, the host silently uses the `auto` order.
+* The phone decodes whatever the offer selects; the codec in use is reported in the host's stats.
 
 ### Frame rate and data saver
 

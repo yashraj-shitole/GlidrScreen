@@ -314,8 +314,7 @@ class ScreenClient(
             withTimeoutOrNull(15_000) { opened.await() } ?: throw Exception("Could not reach the signaling server. Check your internet connection.")
             _stage.value = ConnectStages.SIGNALING
             signaling.publish(
-                JSONObject().put("t", "req").put("from", "p").put("sid", sid).put("ts", System.currentTimeMillis())
-                    .put("n", deviceName()),
+                SignalMsg.request(sid, System.currentTimeMillis(), deviceName(), WebRtcRuntime.decoderNames(appContext)),
             )
             _stage.value = ConnectStages.REQUEST_SENT
             _state.value = waitingState(attempt)

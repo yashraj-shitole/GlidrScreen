@@ -86,14 +86,29 @@ function opusPreferences() {
   return opus.length ? opus : all;
 }
 
-function codecPreferences(pref) {
+/**
+ * Codec list for setCodecPreferences. `order` is the host's decision (src/media.js codecOrder: names in offer order,
+ * already limited to what the phone can decode; it arrives in the `start` command like the other media.js numbers).
+ * Without it (an old host build or a self-test) the order is H.264 then VP8, VP8 first when pref is 'vp8'. `decoders`
+ * (the phone's decoder names, or null when unknown) is applied again here as a safety net: VP9 / AV1 are never
+ * offered to a phone that did not say it can decode them. rtx entries follow the codecs. A codec this Chromium cannot
+ * encode is skipped, so the list falls through to H.264 / VP8 on its own.
+ */
+function codecPreferences(pref, decoders, order) {
   const all = RTCRtpSender.getCapabilities('video').codecs;
-  const h264 = all.filter((c) => /h264/i.test(c.mimeType) && /packetization-mode=1/.test(c.sdpFmtpLine || ''));
-  const vp8 = all.filter((c) => /vp8/i.test(c.mimeType));
+  const known = Array.isArray(decoders) && decoders.length > 0;
+  const byName = {
+    h264: all.filter((c) => /h264/i.test(c.mimeType) && /packetization-mode=1/.test(c.sdpFmtpLine || '')),
+    vp8: all.filter((c) => /vp8/i.test(c.mimeType)),
+    // 8-bit 4:2:0 screen capture: VP9 profile 0 only (profile 2 is 10-bit and only makes the offer larger)
+    vp9: all.filter((c) => /vp9/i.test(c.mimeType) && !/profile-id=(?!0(?:;|$))/.test(c.sdpFmtpLine || '')),
+    av1: all.filter((c) => /av1/i.test(c.mimeType)),
+  };
   const rtx = all.filter((c) => /rtx/i.test(c.mimeType));
-  const order = pref === 'vp8' ? [vp8, h264] : [h264, vp8];
-  const list = [...order[0], ...order[1], ...rtx];
-  return list.length > rtx.length ? list : all;
+  const names = (Array.isArray(order) && order.length ? order : (pref === 'vp8' ? ['vp8', 'h264'] : ['h264', 'vp8']))
+    .filter((n) => Object.prototype.hasOwnProperty.call(byName, n) && (known ? decoders.includes(n) : n === 'h264' || n === 'vp8'));
+  const list = [...new Set(names)].flatMap((n) => byName[n]);
+  return list.length ? [...list, ...rtx] : all;
 }
 
 async function applyQuality() {
@@ -129,7 +144,7 @@ async function hostStart(cmd) {
   host = s;
   const tr = pc.addTransceiver(stream.getVideoTracks()[0], { direction: 'sendonly', streams: [stream] });
   s.sender = tr.sender;
-  try { tr.setCodecPreferences(codecPreferences(cmd.codec)); } catch (e) { console.warn('codec prefs', e); }
+  try { tr.setCodecPreferences(codecPreferences(cmd.codec, cmd.decoders, cmd.codecOrder)); } catch (e) { console.warn('codec prefs', e); }
   if (audioTrack) {
     const at = pc.addTransceiver(audioTrack, { direction: 'sendonly', streams: [stream] });
     try { at.setCodecPreferences(opusPreferences()); } catch (e) { console.warn('opus prefs', e); }

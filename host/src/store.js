@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const os = require('os');
 const { newKey } = require('./crypto');
 const { sanitizeLaunchers } = require('./actions');
+const { normalizeCodecPref } = require('./media');
 
 const UNCLAIMED_TTL_MS = 15 * 60 * 1000;
 /** Pairing keys are stored as `enc:v1:<base64 of safeStorage ciphertext>`. Base64url keys never contain ':'. */
@@ -23,7 +24,7 @@ const DEFAULTS = {
   actionsEnabled: null, // ids switched on individually; null = defaults (lock, sleep only). Restart, shutdown and launchers need an explicit yes
   launchers: [], // {id, label, path, args[]}: defined on this PC only, max 12; the phone never sees paths or arguments
   quality: 'auto', // auto | low | balanced | high
-  codec: 'auto', // auto | h264 | vp8
+  codec: 'auto', // auto | h264 | vp8 | vp9 | av1 (vp9 / av1 only when the phone can decode them)
   stun: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
   turn: null, // optional {urls, username, credential}; off by default, TURN would relay media through a server
   // {id, key(b64url), name, createdAt, claimedAt, lastSeen, needsRepair?, viewOnly?, expiresAt?, maxSessionMin?}
@@ -45,6 +46,7 @@ class Store {
     try { raw = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch { /* first run */ }
     this.data = { ...DEFAULTS, ...(raw || {}), slots: Array.isArray(raw?.slots) ? raw.slots.map((s) => ({ ...s })) : [] };
     this.data.launchers = sanitizeLaunchers(this.data.launchers); // a hand-edited file must not widen what can run
+    this.data.codec = normalizeCodecPref(this.data.codec); // a hand-edited file must not break the engine
     if (this.data.allowActions !== true) this.data.allowActions = false;
     if (this.data.actionsEnabled !== null && !Array.isArray(this.data.actionsEnabled)) this.data.actionsEnabled = null;
     const migrate = this.#openKeys();

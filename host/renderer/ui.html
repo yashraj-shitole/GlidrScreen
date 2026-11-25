@@ -92,7 +92,8 @@
     <label class="row between"><span>Default quality<small>24 fps always; this caps resolution and bitrate</small></span>
       <select id="quality"><option value="auto">Auto</option><option value="low">Low 540p</option><option value="balanced">Balanced 720p</option><option value="high">High 1440p</option></select></label>
     <label class="row between"><span>Video codec<small>Auto prefers hardware H.264</small></span>
-      <select id="codec"><option value="auto">Auto</option><option value="h264">H.264</option><option value="vp8">VP8</option></select></label>
+      <select id="codec"><option value="auto">Auto</option><option value="h264">H.264</option><option value="vp8">VP8</option><option value="vp9">VP9 (small, more CPU)</option><option value="av1">AV1 (smallest, needs a recent phone)</option></select></label>
+    <p class="dim small">If the phone cannot decode it, the PC uses H.264.</p>
     <details>
       <summary>Advanced</summary>
       <label class="col"><span>PC name</span><input type="text" id="hostName" maxlength="40"></label>

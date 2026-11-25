@@ -14,6 +14,19 @@ object WebRtcRuntime {
     fun eglBase(context: Context): EglBase = ensure(context).first
     fun factory(context: Context): PeerConnectionFactory = ensure(context).second
 
+    @Volatile private var decoders: List<String>? = null
+
+    /** Protocol names of the video codecs this phone can really decode (hardware or software); cached. */
+    fun decoderNames(context: Context): List<String> {
+        decoders?.let { return it }
+        val egl = eglBase(context)
+        val names = runCatching {
+            VideoDecoders.names(DefaultVideoDecoderFactory(egl.eglBaseContext).supportedCodecs.map { it.name })
+        }.getOrDefault(emptyList())
+        decoders = names
+        return names
+    }
+
     @Synchronized
     private fun ensure(context: Context): Pair<EglBase, PeerConnectionFactory> {
         val e = egl
