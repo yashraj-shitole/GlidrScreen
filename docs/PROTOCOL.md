@@ -498,7 +498,7 @@ Privacy rules the host follows:
   counts. Switching it on or off applies at once, also in a live session.
 * The disclosure comes first: `hello.recording` is `true` in the first message of the session, and `recording` is sent
   when the PC starts recording, before any video is written.
-* Files are only ever created in `<Videos>Glidr` (`app.getPath('videos')`), named `Glidr-<phone name>-<YYYYMMDD-HHMMSS>.webm`
+* Files are only ever created in `<Videos>\Glidr` (`app.getPath('videos')`), named `Glidr-<phone name>-<YYYYMMDD-HHMMSS>.webm`
   (the phone name is sanitised like received files: no path characters, no reserved Windows names, at most 40
   characters). A name that exists is never overwritten (`-2`, `-3`, ...). A monitor or window switch continues in
   `...-2.webm`.
