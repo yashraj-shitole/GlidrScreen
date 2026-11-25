@@ -154,6 +154,7 @@ class HostCore extends EventEmitter {
     const primary = monitors.find((d) => d.primary) || monitors[0];
     if (!primary) return reply({ t: 'deny', reason: 'no display' });
     const q = media.resolveQuality({ preset: this.store.get('quality') });
+    const decoders = media.parseDecoders(msg.dec); // what the phone can decode; null = old phone (H.264 / VP8 only)
     const s = {
       sid: msg.sid, slotId, key: slot.key, name: slot.name || String(msg.n || 'Phone'),
       live: false, monitorId: primary.id, quality: q.preset, fps: q.fps, saver: q.saver,
@@ -168,9 +169,10 @@ class HostCore extends EventEmitter {
     try {
       const sourceId = await displays.sourceIdFor(primary.id);
       if (this.sess !== s) return; // ended or replaced while looking up the capture source
+      const codec = media.normalizeCodecPref(this.store.get('codec'));
       this.engine.send({
         t: 'start', sid: s.sid, sourceId,
-        iceServers: this.#iceServers(), codec: this.store.get('codec'),
+        iceServers: this.#iceServers(), codec, decoders, codecOrder: media.codecOrder(codec, decoders),
         ...q, quality: q.preset, audio: this.store.get('shareAudio') === true,
       });
     } catch (e) {

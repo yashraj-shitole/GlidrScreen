@@ -26,7 +26,7 @@ function candidates(n) {
 
 const ext = (id, uri) => `a=extmap:${id} ${uri}`;
 
-function videoSection(mid) {
+function videoSection(mid, newCodecs) {
   // Chromium lists several H.264 profiles (packetization-mode=1 only, as engine.js prefers), VP8, and an rtx entry for each.
   const h264 = ['42e01f', '4d001f', '640c1f', '42001f', '4d0032', '640032'];
   const pts = [];
@@ -40,6 +40,14 @@ function videoSection(mid) {
   }
   codec.push(`a=rtpmap:${pt} VP8/90000`, ...fb(pt), `a=rtpmap:${pt + 1} rtx/90000`, `a=fmtp:${pt + 1} apt=${pt}`);
   pts.push(pt, pt + 1);
+  if (newCodecs) {
+    // VP9 (profile 0 only, as engine.js filters) and AV1, each with rtx, as Chromium lists them
+    pt += 2;
+    codec.push(`a=rtpmap:${pt} VP9/90000`, ...fb(pt), `a=fmtp:${pt} profile-id=0`, `a=rtpmap:${pt + 1} rtx/90000`, `a=fmtp:${pt + 1} apt=${pt}`);
+    pts.push(pt, pt + 1); pt += 2;
+    codec.push(`a=rtpmap:${pt} AV1/90000`, ...fb(pt), `a=fmtp:${pt} level-idx=5;profile=0;tier=0`, `a=rtpmap:${pt + 1} rtx/90000`, `a=fmtp:${pt + 1} apt=${pt}`);
+    pts.push(pt, pt + 1);
+  }
   const lines = [
     `m=video 9 UDP/TLS/RTP/SAVPF ${pts.join(' ')}`,
     'c=IN IP4 0.0.0.0', 'a=rtcp:9 IN IP4 0.0.0.0', `a=ice-ufrag:${b64(4)}`, `a=ice-pwd:${b64(18)}`, 'a=ice-options:trickle',
@@ -78,12 +86,12 @@ function dataSection(mid) {
     'a=ice-options:trickle', `a=fingerprint:sha-256 ${fingerprint()}`, 'a=setup:actpass', `a=mid:${mid}`, 'a=sctp-port:5000', 'a=max-message-size:262144'];
 }
 
-function sdp({ audio, cands }) {
+function sdp({ audio, cands, newCodecs }) {
   const mids = audio ? ['0', '1', '2'] : ['0', '1'];
   const head = ['v=0', `o=- ${crypto.randomInt(2 ** 31)}${crypto.randomInt(1e9)} 2 IN IP4 127.0.0.1`, 's=-', 't=0 0',
     `a=group:BUNDLE ${mids.join(' ')}`, 'a=extmap-allow-mixed', `a=msid-semantic: WMS ${b64(12)}`];
   // max-bundle: candidates are listed once, on the first m-section
-  const v = videoSection('0'); v.splice(9, 0, ...candidates(cands));
+  const v = videoSection('0', newCodecs); v.splice(9, 0, ...candidates(cands));
   const out = [...head, ...v, ...(audio ? audioSection('1') : []), ...dataSection(audio ? '2' : '1')];
   return out.join('\r\n') + '\r\n';
 }
@@ -98,6 +106,14 @@ for (const [label, audio, cands] of [['video only, 8 candidates', false, 8], ['v
   assert.ok(open(slot.encKey, frame).sdp === s, 'round trip');
   rows.push({ label, sdp: s.length, frame: frame.length, headroom: 3900 - frame.length });
   assert.ok(frame.length < 3900, `${label}: frame ${frame.length} chars must stay under 3900`);
+}
+// VP9 and AV1 (opt-in codecs) in the offer on top of the six H.264 profiles and VP8, with audio: the worst case.
+for (const [label, cands] of [['video + audio + VP9 + AV1, 8 candidates', 8], ['video + audio + VP9 + AV1, 14 candidates', 14]]) {
+  const s = sdp({ audio: true, cands, newCodecs: true });
+  const frame = frameFor(s);
+  assert.ok(open(slot.encKey, frame).sdp === s, 'round trip');
+  rows.push({ label, sdp: s.length, frame: frame.length, headroom: 3900 - frame.length });
+  assert.ok(3900 - frame.length >= 1000, `${label}: needs at least 1 kB headroom, frame ${frame.length}`);
 }
 const base = rows[0], withAudio = rows[1];
 assert.ok(base.sdp > 4500 && base.sdp < 9000, 'representative SDP size, got ' + base.sdp);

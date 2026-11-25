@@ -107,6 +107,31 @@ enum class StreamMode(val wire: String, val label: String) {
 
 enum class MouseButton(val wire: String) { Left("l"), Right("r"), Middle("m") }
 
+/** Video codecs this phone reports it can decode (`req.dec`); the PC only offers codecs from the list. */
+object VideoDecoders {
+    /** The only names the PC understands, lower case, in the order they are reported. */
+    val KNOWN = listOf("h264", "vp8", "vp9", "av1")
+
+    /**
+     * Maps WebRTC `VideoCodecInfo.name` values ("H264", "VP8", "VP9", "AV1", maybe others) to the protocol names:
+     * lower-cased, de-duplicated, only the four known ones, in the fixed [KNOWN] order.
+     */
+    fun names(codecNames: Iterable<String>): List<String> {
+        val have = codecNames.map { it.trim().lowercase() }.toSet()
+        return KNOWN.filter { it in have }
+    }
+}
+
+/** The `req` signaling message (see docs/PROTOCOL.md). [decoders] are protocol names, see [VideoDecoders]. */
+object SignalMsg {
+    fun request(sid: String, ts: Long, name: String, decoders: List<String>): JSONObject {
+        val m = JSONObject().put("t", "req").put("from", "p").put("sid", sid).put("ts", ts).put("n", name)
+        val dec = decoders.filter { it in VideoDecoders.KNOWN }.distinct()
+        if (dec.isNotEmpty()) m.put("dec", JSONArray(dec))
+        return m
+    }
+}
+
 /** Builders for the JSON messages sent over the `ctl` data channel (see docs/PROTOCOL.md). */
 object Msg {
     fun ping(n: Int, ts: Long) = JSONObject().put("t", "ping").put("n", n).put("ts", ts)

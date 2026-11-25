@@ -239,7 +239,7 @@ function registerIpc() {
         const patch = {};
         for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
-        if (['auto', 'h264', 'vp8'].includes(arg.codec)) patch.codec = arg.codec;
+        if (['auto', 'h264', 'vp8', 'vp9', 'av1'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
         if (typeof arg.signalBase === 'string' && /^https?:\/\/[^\s]+$/.test(arg.signalBase.trim())) {
           patch.signalBase = arg.signalBase.trim().replace(/\/+$/, '');
