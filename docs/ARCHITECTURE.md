@@ -111,6 +111,24 @@ targets with at least 8 dp between neighbours) and Apple's HIG (44 pt minimum hi
 * The PC app cannot capture or control the lock screen, UAC prompts or elevated windows (Windows isolates them).
   Run the host as administrator to control elevated windows.
 * 24 fps is the cap, not a guarantee: under heavy congestion resolution drops first (`maintain-framerate`).
+* **The pointer cannot be left out of the captured video, so there is no phone-side "local pointer" overlay.** The idea
+  (capture the screen without the pointer, let the phone draw it from the `cur` stream so it never lags behind the
+  finger) was probed on Electron 44 / Chromium 152, Windows 11, in a hidden window, with the real system pointer moved
+  over a known spot and a frame of the track read back into a canvas (a control run with the pointer far away showed no
+  pointer pixels, the same spot with the pointer on it showed 37 pointer pixels in a 48x48 area, so the check does
+  detect it; the captured desktop itself was almost entirely black in the probe session, which does not matter for this
+  test).
+  Every variant still contained the pointer:
+  legacy `getUserMedia({video:{mandatory:{chromeMediaSource:'desktop', ...}}})` (the capture used here; its
+  `getSettings()` / `getCapabilities()` have no `cursor` member at all), the same with `cursor:'never'` inside
+  `mandatory` or beside it, `getDisplayMedia({video:{cursor:'never'}})` through
+  `setDisplayMediaRequestHandler` (`getSettings().cursor` stays `"always"`, `getCapabilities()` has no `cursor`), and
+  `applyConstraints({cursor:'never'})` on both kinds of track (resolves without error, changes nothing). The
+  `WebRtcAllowWgc*Capturer` feature flags changed nothing either. The pointer is drawn onto the frames by
+  Chromium's desktop capturer itself (it appeared even over a black frame) and the `cursor` constraint is not wired to
+  it for screen sources in Electron. Hiding it would need a native capturer outside Chromium, or hiding the system pointer
+  on the PC itself (also gone for anyone sitting at the PC, and unsafe if the host crashes), neither of which is worth
+  it here. The `cur` stream stays what it is today (position for the phone's trackpad logic).
 
 ## App lock
 
