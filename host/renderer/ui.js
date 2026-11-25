@@ -2,7 +2,7 @@
 const $ = (id) => document.getElementById(id);
 let state = null;
 let editing = false;
-const TOGGLES = ['allowControl', 'allowActions', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart', 'allowLan'];
+const TOGGLES = ['allowControl', 'allowActions', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart', 'allowLan', 'recordSessions'];
 
 const STATUS = {
   waiting: ['waiting', 'Ready'], connecting: ['connecting', 'Connecting'],
@@ -42,6 +42,7 @@ function render(s) {
   $('live').classList.toggle('hidden', !s.device);
   if (s.device) {
     $('liveName').textContent = s.device.name;
+    $('liveRec').classList.toggle('hidden', !s.recording); // session recording
     const st = s.stats;
     const cells = st ? [
       [st.fps, 'fps'], [st.w ? `${st.w}x${st.h}` : '...', 'video'], [`${(st.kbps / 1000).toFixed(1)}`, 'Mbit/s'],

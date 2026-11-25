@@ -25,6 +25,7 @@ const DEFAULTS = {
   launchers: [], // {id, label, path, args[]}: defined on this PC only, max 12; the phone never sees paths or arguments
   allowLan: true, // LAN signaling: a phone on the same Wi-Fi sets up the connection directly with this PC (see lanserver.js)
   lanPort: 0, // port of that server; 0 = pick a random free one in 49152-65535 at the first start, then keep it
+  recordSessions: false, // save what the phone views to Videos\Glidr (off by default; the phone is told while it runs; see recording.js)
   quality: 'auto', // auto | low | balanced | high
   codec: 'auto', // auto | h264 | vp8 | vp9 | av1 (vp9 / av1 only when the phone can decode them)
   stun: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
@@ -51,6 +52,7 @@ class Store {
     this.data.codec = normalizeCodecPref(this.data.codec); // a hand-edited file must not break the engine
     if (this.data.allowActions !== true) this.data.allowActions = false;
     if (typeof this.data.allowLan !== 'boolean') this.data.allowLan = true;
+    if (this.data.recordSessions !== true) this.data.recordSessions = false; // a hand-edited file cannot switch it on by accident
     if (!Number.isInteger(this.data.lanPort) || this.data.lanPort < 1024 || this.data.lanPort > 65535) this.data.lanPort = 0;
     if (this.data.actionsEnabled !== null && !Array.isArray(this.data.actionsEnabled)) this.data.actionsEnabled = null;
     const migrate = this.#openKeys();

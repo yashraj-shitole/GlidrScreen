@@ -9,6 +9,11 @@ const { FileReceiver, cleanStaleParts } = require('./files');
 const Windows = require('./windows');
 const Actions = require('./actions');
 const path = require('path');
+// --- session recording (recording.js) ---
+const Recording = require('./recording');
+/** Recordings go to <Videos>\Glidr and nowhere else. */
+const defaultRecordingsDir = () => Recording.recordingsDirIn(require('electron').app.getPath('videos'));
+// --- end session recording ---
 
 const MAX_TIMER_MS = 2 ** 31 - 1; // setTimeout fires at once above this
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -65,6 +70,9 @@ class HostCore extends EventEmitter {
     this.winThumbTimer = null;
     this.winLatest = null; // newest list computed: the ids the phone may ask for
     this.winDetect = new Windows.ChangeDetector();
+    this.recordingsDir = defaultRecordingsDir; // session recording: () => folder; tests replace it
+    this.recDeps = {}; // tests: {fs, clock} for the recorder
+    this.recPending = new Set(); // recordings still being flushed to disk
 
     this.sig.on('message', (m) => this.#onSignal(m));
     this.sig.on('status', (s) => { this.sigStatus = s; this.#changed(); });
@@ -119,6 +127,7 @@ class HostCore extends EventEmitter {
       stats: s?.live ? this.stats : null,
       monitors: displays.list(),
       active: s?.monitorId ?? null,
+      recording: s?.rec?.active === true, // session recording
     };
   }
 
@@ -174,6 +183,7 @@ class HostCore extends EventEmitter {
         t: 'start', sid: s.sid, sourceId,
         iceServers: this.#iceServers(), codec, decoders, codecOrder: media.codecOrder(codec, decoders),
         ...q, quality: q.preset, audio: this.store.get('shareAudio') === true,
+        record: (s.recAsked = this.store.get('recordSessions') === true), // session recording: the engine starts once the channel is open
       });
     } catch (e) {
       if (this.sess === s) this.endSession('capture failed: ' + e.message, true);
@@ -204,6 +214,7 @@ class HostCore extends EventEmitter {
         clearTimeout(s.graceTimer);
         s.live = true;
         this.input.setBounds(this.#bounds(s.monitorId));
+        this.#recordingLive(s); // session recording: before the hello, so the phone is told from its first message
         this.#sendHello();
         this.#changed();
         break;
@@ -225,6 +236,8 @@ class HostCore extends EventEmitter {
       case 'files': s.files?.onText(String(e.data)); break; // `files` channel, text frame (begin / end)
       case 'files-bin': s.files?.onBinary(e.data); break; // `files` channel, binary chunk
       case 'files-close': s.files?.abort('files channel closed', true); break;
+      case 'rec-chunk': this.#recordingChunk(s, e); break; // session recording: WebM bytes from the engine
+      case 'rec-stop': this.#recordingStop(s, true); break; // the engine could not record, or stopped by itself
       case 'switched':
         if (e.kind === 'window') { this.#windowSwitched(s, e); break; }
         s.monitorId = e.monitorId;
@@ -261,6 +274,7 @@ class HostCore extends EventEmitter {
       control: this.#canControl(s), quality: s.quality,
       monitors: displays.list(), active: s.monitorId,
       locked: this.locked, audio: s.audio, actions: this.#actionList(s),
+      recording: s.rec?.active === true, // session recording: the phone is always told
     });
   }
 
@@ -576,6 +590,76 @@ class HostCore extends EventEmitter {
     this.#changed();
   }
 
+  // -------------------------------------------------------------- session recording (see recording.js, docs/PROTOCOL.md "Recording")
+  // Off unless the PC owner switched "Record sessions on this PC" on. The phone is told in `hello` and by `recording`
+  // whenever it starts or stops; the engine records with MediaRecorder and sends WebM chunks, recording.js writes them to
+  // <Videos>\Glidr. File names and paths are never logged (debug level only).
+
+  /** The channel just opened: start the file when recording is on, otherwise make sure the engine is not recording. */
+  #recordingLive(s) {
+    const on = this.store.get('recordSessions') === true;
+    if (!(on && this.#recordingStart(s, false)) && s.recAsked) this.engine.send({ t: 'rec', sid: s.sid, on: false });
+  }
+
+  /** Creates the file and tells the engine to record. [announce]: also send `recording` (not needed before the hello). */
+  #recordingStart(s, announce) {
+    if (s.rec?.active) return true;
+    const rec = new Recording.SessionRecorder({
+      dir: this.recordingsDir(),
+      ...this.recDeps,
+      onStopped: () => { if (s.rec === rec) this.#recordingStop(s, true); }, // 2 GB limit or disk error
+      log: (m) => this.emit('log', m), // error codes only
+      debug: (m) => { if (process.env.GLIDR_DEBUG) this.emit('log', m); },
+    });
+    if (!rec.start(s.name)) return false;
+    s.rec = rec;
+    if (announce) this.#send({ t: 'recording', on: true });
+    this.engine.send({ t: 'rec', sid: s.sid, on: true });
+    this.#changed();
+    return true;
+  }
+
+  /** A chunk from the engine. It is acknowledged either way, so the engine's queue never fills up because of us. */
+  #recordingChunk(s, e) {
+    const size = e.data && (e.data.byteLength || e.data.length) || 0;
+    if (s.rec?.active) s.rec.write(e.data, e.seg);
+    else if (!s.recOffSent) { s.recOffSent = true; this.engine.send({ t: 'rec', sid: s.sid, on: false }); } // nobody asked for it
+    this.engine.send({ t: 'rec-ack', sid: s.sid, n: size });
+  }
+
+  /**
+   * Ends the recording and flushes the file. [live]: the session goes on, so the engine and the phone are told. The
+   * "saved" event (phone name only) follows when a file was kept.
+   */
+  #recordingStop(s, live) {
+    const rec = s.rec;
+    if (!rec) return;
+    s.rec = null;
+    if (live) {
+      this.engine.send({ t: 'rec', sid: s.sid, on: false });
+      if (this.sess === s) this.#send({ t: 'recording', on: false });
+    }
+    const p = rec.stop().then((r) => { if (r.saved) this.emit('recording-saved', { from: s.name }); }).catch(() => {});
+    this.recPending.add(p);
+    p.then(() => this.recPending.delete(p));
+    this.#changed();
+  }
+
+  /** "Record sessions on this PC" was switched: it takes effect at once in a live session, and the phone is told. */
+  recordingChanged() {
+    const s = this.sess;
+    if (!s?.live) return;
+    if (this.store.get('recordSessions') === true) this.#recordingStart(s, true);
+    else this.#recordingStop(s, true);
+  }
+
+  /** Resolves when every recording has been flushed (at most 5 s): the app waits for it before it quits. */
+  recordingsDone() {
+    if (!this.recPending.size) return Promise.resolve();
+    return Promise.race([Promise.all([...this.recPending]), new Promise((r) => { setTimeout(r, 5000).unref?.(); })]);
+  }
+  // -------------------------------------------------------------- end session recording
+
   endSession(reason, notify) {
     const s = this.sess;
     if (!s) return;
@@ -592,6 +676,7 @@ class HostCore extends EventEmitter {
     s.clip?.stop();
     s.cursor?.stop();
     s.files?.abort('session ended', false); // partial file deleted, nobody left to tell
+    this.#recordingStop(s, false); // session recording: finalise the file (the engine is stopped below)
     this.stats = null;
     this.input.reset();
     this.engine.send({ t: 'stop', sid: s.sid });

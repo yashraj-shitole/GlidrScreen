@@ -186,6 +186,7 @@ async function buildState() {
       keepAwake: store.get('keepAwake'), endOnLock: store.get('endOnLock'), shareAudio: store.get('shareAudio'),
       allowActions: store.get('allowActions') === true,
       allowLan: store.get('allowLan') !== false,
+      recordSessions: store.get('recordSessions') === true, // session recording
     },
     // The PC's own list (paths and arguments are shown here only; the phone is only ever sent id, label and danger).
     actions: {
@@ -214,7 +215,7 @@ function updateTray() {
   const label = { paused: 'Sharing paused', waiting: 'Ready', connecting: 'Connecting...', streaming: `Streaming to ${s.device?.name}` }[s.status];
   const timed = !s.sharing ? pauseTimer.label() : null;
   const status = timed || label;
-  tray.setToolTip(`Glidr Screen: ${status}`);
+  tray.setToolTip(`Glidr Screen: ${status}${s.recording ? ', Recording' : ''}`); // session recording
   const u = updates.state;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Glidr Screen', click: createUiWindow },
@@ -266,7 +267,7 @@ function registerIpc() {
         store.revoke(arg); store.createSlot(); core.refreshSlots(); break;
       case 'setting': {
         const patch = {};
-        for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio', 'allowLan']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
+        for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio', 'allowLan', 'recordSessions']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8', 'vp9', 'av1'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -281,6 +282,7 @@ function registerIpc() {
         if ('allowActions' in patch) core.actionsChanged();
         if ('allowFiles' in patch) core.filesChanged();
         if ('keepAwake' in patch) keepAwake.sync();
+        if ('recordSessions' in patch) core.recordingChanged(); // session recording: starts / stops at once in a live session
         break;
       }
       // Quick actions (see actions.js). Launchers are created here, on the PC, and nowhere else.
@@ -372,6 +374,10 @@ app.whenReady().then(async () => {
   core.on('file-received', ({ name, from }) => {
     if (tray) tray.displayBalloon({ title: 'Glidr Screen', content: `Received ${name} from ${from}` });
   });
+  // Session recording: the phone's name only, never a path. Recordings can only land in Videos\Glidr (see recording.js).
+  core.on('recording-saved', ({ from }) => {
+    if (tray) tray.displayBalloon({ title: 'Glidr Screen', content: `Saved a recording of ${from}` });
+  });
   core.on('log', (m) => { if (SELFTEST || process.env.GLIDR_DEBUG) console.log('[host]', m); });
   screen.on('display-added', () => core.displaysChanged());
   screen.on('display-removed', () => core.displaysChanged());
@@ -406,7 +412,7 @@ app.whenReady().then(async () => {
   app.on('before-quit', (e) => {
     if (presenceQuit) return;
     presenceQuit = true; e.preventDefault();
-    presence.quit().finally(() => app.quit());
+    Promise.all([presence.quit(), core.recordingsDone()]).finally(() => app.quit()); // recordingsDone: a running recording is flushed first
   });
   if (app.isPackaged) { try { app.setAsDefaultProtocolClient(links.SCHEME); } catch { /* registry not writable: links just stay off */ } }
   updates.start();
