@@ -11,6 +11,8 @@ const files = require('../src/files');
 const { sanitizeName, uniqueName, rejectReason, FileReceiver, REJECT } = files;
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** Waits until [fn] is truthy (polling), up to [ms]: a loaded machine must not turn a timeout test into a flake. */
+const until = async (fn, ms = 5000) => { const end = Date.now() + ms; while (!fn() && Date.now() < end) await sleep(10); };
 const ctx = (o = {}) => ({ allowFiles: true, allowControl: true, viewOnly: false, busy: false, ...o });
 const offer = (o = {}) => ({ t: 'file-offer', id: 'a1b2c3d4', name: 'photo.jpg', size: 10, ...o });
 
@@ -253,14 +255,14 @@ const offer = (o = {}) => ({ t: 'file-offer', id: 'a1b2c3d4', name: 'photo.jpg',
     const before = listing();
     const r = mk({ beginTimeoutMs: 40, idleTimeoutMs: 40 });
     r.offer(offer({ size: 5 }), policy);
-    await sleep(120);
+    await until(() => sent[1]);
     assert.ok(!r.busy);
     assert.strictEqual(sent[1].ok, false);
     reset();
     r.offer(offer({ size: 100 }), policy);
     r.onText(JSON.stringify({ t: 'begin', id: 'a1b2c3d4' }));
     r.onBinary(new Uint8Array(10));
-    await sleep(150);
+    await until(() => sent[1]);
     assert.ok(!r.busy);
     assert.strictEqual(sent[1].ok, false);
     assert.deepStrictEqual(listing(), before);
