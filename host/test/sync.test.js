@@ -106,4 +106,27 @@ assert.strictEqual(normalize(10, 1), 0);
   assert.strictEqual(sent.length, 0);
 }
 
+// Electron returns Promises from clipboard.readText()/writeText(): that path must send changes too
+(async () => {
+  let pc = 'baseline', sent = [], writes = [];
+  const timers = { fn: null, si(fn) { this.fn = fn; return 1; }, ci() {} };
+  const c = new ClipboardSync({
+    read: () => Promise.resolve(pc), write: (t) => { writes.push(t); return Promise.reject(new Error('async fail')); },
+    send: (t) => sent.push(t), setInterval: (fn) => timers.si(fn), clearInterval: () => {},
+  });
+  c.setOn(true);
+  await new Promise((r) => setImmediate(r));
+  timers.fn(); await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(sent, [], 'the baseline text is not pushed');
+  pc = 'copied on the PC';
+  timers.fn(); await new Promise((r) => setImmediate(r)); await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(sent, ['copied on the PC']);
+  timers.fn(); await new Promise((r) => setImmediate(r));
+  assert.strictEqual(sent.length, 1, 'unchanged text is not pushed again');
+  assert.strictEqual(c.fromPhone('hello'), true); // a rejected async write must not throw or crash
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(writes, ['hello']);
+  c.stop();
+  console.log('ok sync (async clipboard)');
+})().catch((e) => { console.error(e); process.exit(1); });
 console.log('ok sync');

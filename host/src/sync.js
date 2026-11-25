@@ -26,22 +26,45 @@ class ClipboardSync {
 
   get on() { return this.timer !== null; }
 
-  #read() {
-    try { const t = this.read(); return typeof t === 'string' ? t : ''; } catch { return ''; }
+  // Electron's clipboard API returns Promises in current versions, older ones and the tests return plain strings:
+  // both are handled, so a Promise is never mistaken for "no text".
+  #text(t) { return typeof t === 'string' ? t : ''; }
+
+  #readNow() {
+    try { return this.read(); } catch { return ''; }
   }
 
   /** Start or stop pushing PC clipboard changes. Starting records the current text as the baseline (not pushed). */
   setOn(on) {
     if (on === this.on) return;
     if (!on) { this.ci(this.timer); this.timer = null; return; }
-    this.last = this.#read();
+    this.ready = false;
+    this.last = null;
+    const first = this.#readNow();
+    if (first && typeof first.then === 'function') {
+      first.then((t) => { this.last = this.#text(t); this.ready = true; }, () => { this.last = ''; this.ready = true; });
+    } else {
+      this.last = this.#text(first);
+      this.ready = true;
+    }
     this.timer = this.si(() => this.poll(), this.intervalMs);
   }
 
   /** One poll step; exported for tests. Sends only when the text changed, is non-empty and within the cap. */
   poll() {
-    const t = this.#read();
-    if (t === this.last) return false;
+    if (!this.ready) return false; // the baseline read is still pending
+    const r = this.#readNow();
+    if (r && typeof r.then === 'function') {
+      if (this.busy) return false;
+      this.busy = true;
+      r.then((t) => this.#apply(this.#text(t)), () => {}).finally(() => { this.busy = false; });
+      return false; // the result is applied when the read finishes
+    }
+    return this.#apply(this.#text(r));
+  }
+
+  #apply(t) {
+    if (!this.on || t === this.last) return false;
     this.last = t;
     const ok = validClipText(t);
     if (ok === null) return false;
@@ -53,7 +76,10 @@ class ClipboardSync {
   fromPhone(text) {
     const ok = validClipText(text);
     if (ok === null) return false;
-    try { this.write(ok); } catch { return false; }
+    try {
+      const r = this.write(ok);
+      if (r && typeof r.catch === 'function') r.catch(() => {}); // a rejected async write must not crash the host
+    } catch { return false; }
     this.last = ok;
     return true;
   }

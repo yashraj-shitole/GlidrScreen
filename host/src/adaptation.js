@@ -37,6 +37,8 @@
   const PROBE_WINDOW = 8;           // a step down within this many samples of a step up is a failed probe
   const STABLE_RESET = 20;          // clean samples at the ceiling that forget the backoff
   const DOWN_AFTER = { auto: 2, latency: 1, clarity: 2 };
+  // A fresh connection reports 'bandwidth' while WebRTC's estimate ramps up; that is not congestion. The first
+  // `warmup` samples (cfg.warmup, default 0 here, 6 = 12 s in the engine) only count a bad RTT, never a limit reason.
 
   /** 'auto' | 'latency' | 'clarity'. Unknown -> 'auto'; undefined/null -> `current` (or 'auto'). */
   function normalizeMode(v, current) {
@@ -92,6 +94,7 @@
    */
   function create(cfg) {
     let conf = null;
+    let warmup = Math.max(0, Math.floor(Number(cfg && cfg.warmup) || 0));
     let steps = [];
     let level = 0, bad = 0, clean = 0, idx = 0, lastUpAt = null, upNeeded = UP_BASE;
 
@@ -119,7 +122,8 @@
       idx++;
       const rtt = Number.isFinite(s.rttMs) ? s.rttMs : null;
       const reason = s.qualityLimitationReason;
-      const isBad = reason === 'bandwidth' || reason === 'cpu' || (rtt !== null && rtt > RTT_BAD_MS);
+      const warm = idx <= warmup;
+      const isBad = (!warm && (reason === 'bandwidth' || reason === 'cpu')) || (rtt !== null && rtt > RTT_BAD_MS);
       const isClean = !isBad && (rtt === null || rtt <= RTT_CLEAN_MS);
       const before = level;
       if (isBad) {

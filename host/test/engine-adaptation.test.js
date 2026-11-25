@@ -99,6 +99,8 @@ const rep = (reason, rttSec, bytes, ts) => [
   await tick(rep('none', 0.03, bytes += 1e6, ts += 2000));
   assert.strictEqual(lastStats().mode, 'auto');
   assert.strictEqual(lastStats().adapt, 0);
+  // the first 6 samples are the warm-up: a fresh connection's bandwidth ramp is not congestion
+  for (let i = 0; i < 5; i++) await tick(rep('none', 0.03, bytes += 1e6, ts += 2000));
   const calls0 = setCalls.length;
 
   // two bandwidth-limited samples in auto: one step down through setParameters, no renegotiation

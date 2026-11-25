@@ -125,7 +125,7 @@ async function hostStart(cmd) {
   const q = resolve(cmd);
   const { stream, audioTrack } = await capture(cmd.sourceId, q, cmd.audio === true);
   const pc = new RTCPeerConnection({ iceServers: cmd.iceServers, bundlePolicy: 'max-bundle' });
-  const s = { sid: cmd.sid, pc, stream, audioTrack, q, adapt: Adaptation.create(adaptConfig(q)), capFps: q.fps, dc: null, sender: null };
+  const s = { sid: cmd.sid, pc, stream, audioTrack, q, adapt: Adaptation.create({ ...adaptConfig(q), warmup: 6 }), capFps: q.fps, dc: null, sender: null };
   host = s;
   const tr = pc.addTransceiver(stream.getVideoTracks()[0], { direction: 'sendonly', streams: [stream] });
   s.sender = tr.sender;

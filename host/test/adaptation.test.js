@@ -230,4 +230,22 @@ for (const mode of ['auto', 'latency', 'clarity']) {
   }
 }
 
+// start-up warm-up: the initial 'bandwidth' reports of a fresh connection must not step the picture down
+{
+  const cfg = { mode: 'auto', maxBitrate: 6_000_000, maxHeight: 1080, fps: 24 };
+  const warm = Adaptation.create({ ...cfg, warmup: 6 });
+  for (let i = 0; i < 6; i++) warm.sample({ qualityLimitationReason: 'bandwidth', rttMs: 20 });
+  assert.strictEqual(warm.level, 0, 'limit reasons during warm-up are ignored');
+  warm.sample({ qualityLimitationReason: 'bandwidth', rttMs: 20 });
+  warm.sample({ qualityLimitationReason: 'bandwidth', rttMs: 20 });
+  assert.strictEqual(warm.level, 1, 'after warm-up two bad samples still step down');
+  const rtt = Adaptation.create({ ...cfg, warmup: 6 });
+  rtt.sample({ qualityLimitationReason: 'none', rttMs: 400 });
+  rtt.sample({ qualityLimitationReason: 'none', rttMs: 400 });
+  assert.strictEqual(rtt.level, 1, 'a bad RTT counts even during warm-up');
+  const plain = Adaptation.create(cfg);
+  plain.sample({ qualityLimitationReason: 'bandwidth', rttMs: 20 });
+  plain.sample({ qualityLimitationReason: 'bandwidth', rttMs: 20 });
+  assert.strictEqual(plain.level, 1, 'no warm-up configured: behaves as before');
+}
 console.log('ok adaptation');
