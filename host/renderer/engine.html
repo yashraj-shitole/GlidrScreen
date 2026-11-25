@@ -1,3 +1,16 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; media-src 'self' blob: mediastream:"><title>Glidr Screen engine</title></head>
-<body><video id="sink" muted autoplay playsinline></video><script src="../src/adaptation.js"></script><script src="engine.js"></script></body></html>
+<html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; media-src 'self' blob: mediastream:"><title>Glidr Screen engine</title><link rel="stylesheet" href="phonecam.css"></head>
+<body><video id="sink" muted autoplay playsinline></video>
+<!-- phone camera and microphone panel (phonecam.js). Hidden, and so is this whole window, until the phone sends something -->
+<section id="phonecam" hidden>
+  <header><span class="live"></span><h1 id="pcTitle">Phone camera</h1><small id="pcNote"></small></header>
+  <video id="pcVideo" autoplay playsinline muted></video>
+  <audio id="pcAudio" autoplay></audio>
+  <footer>
+    <label>Audio output <select id="pcSink"><option value="">System default</option></select></label>
+    <button id="pcMute" type="button" aria-pressed="false">Mute</button>
+    <button id="pcMirror" type="button" aria-pressed="false">Mirror</button>
+    <button id="pcStop" type="button" class="stop">Stop</button>
+  </footer>
+</section>
+<script src="phonecam.js"></script><script src="../src/adaptation.js"></script><script src="engine.js"></script></body></html>

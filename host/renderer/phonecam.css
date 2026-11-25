@@ -1,0 +1,21 @@
+/* Phone camera panel inside the engine window (see phonecam.js). The engine window itself stays hidden until a phone sends. */
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; background: #000; color: #f3f2ee; font: 14px/1.4 'Segoe UI', system-ui, sans-serif; }
+/* the self-test's receiving element: present, decoding, never visible */
+#sink { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+#phonecam { position: fixed; inset: 0; display: flex; flex-direction: column; background: #000; }
+#phonecam header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #1a0d0d; border-bottom: 1px solid #5a1f1f; }
+#phonecam h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .02em; }
+#phonecam header small { margin-left: auto; color: #b8b9c2; }
+.live { width: 12px; height: 12px; border-radius: 50%; background: #ff4d4d; box-shadow: 0 0 0 4px rgba(255, 77, 77, .28); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 7px rgba(255, 77, 77, .08); } }
+@media (prefers-reduced-motion: reduce) { .live { animation: none; } }
+#pcVideo { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: #000; }
+#pcVideo.mirrored { transform: scaleX(-1); }
+#phonecam footer { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #0c0d0f; border-top: 1px solid #222328; }
+#phonecam label { display: flex; align-items: center; gap: 8px; margin-right: auto; min-width: 0; }
+#phonecam select { max-width: 280px; min-height: 36px; background: #16171a; color: inherit; border: 1px solid #333; border-radius: 8px; padding: 0 8px; }
+#phonecam button { min-height: 36px; padding: 0 16px; background: #16171a; color: inherit; border: 1px solid #333; border-radius: 10px; font: inherit; cursor: pointer; }
+#phonecam button[aria-pressed="true"] { background: #d4ff3f; color: #0b0c0a; border-color: #d4ff3f; }
+#phonecam button.stop { background: #ff7f7f; color: #0b0c0a; border-color: #ff7f7f; font-weight: 700; }
+#phonecam button:focus-visible, #phonecam select:focus-visible { outline: 2px solid #d4ff3f; outline-offset: 2px; }

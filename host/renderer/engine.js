@@ -149,6 +149,9 @@ async function hostStart(cmd) {
     const at = pc.addTransceiver(audioTrack, { direction: 'sendonly', streams: [stream] });
     try { at.setCodecPreferences(opusPreferences()); } catch (e) { console.warn('opus prefs', e); }
   }
+  // <phonecam> the phone's camera / microphone arrive through renegotiations the phone starts (phonecam.js)
+  PhoneCam.attach(pc, s.sid);
+  // </phonecam>
 
   const dc = pc.createDataChannel('ctl', { ordered: true });
   s.dc = dc;
@@ -205,6 +208,7 @@ function hostSend(cmd) {
 
 function hostStop(sid) {
   if (!host || (sid && host.sid !== sid)) return;
+  PhoneCam.detach(); // <phonecam>
   clearInterval(host.statsTimer);
   recStop(host); // session recording
   try { host.dc?.close(); } catch { /* ignore */ }
@@ -420,6 +424,7 @@ async function run(cmd) {
         }
         break;
       case 'stop': hostStop(cmd.sid); break;
+      case 'pm-offer': case 'pm-drop': await PhoneCam.handle(cmd); break; // <phonecam>
       case 'v-start': await viewerStart(cmd); break;
       case 'v-send': viewer?.dc?.send(cmd.data); break;
       case 'v-stats': await viewerStats(); break;

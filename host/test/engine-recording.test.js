@@ -47,6 +47,7 @@ function load({ supported = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp
     window: { engineBridge: { emit: (o) => events.push(o), onCmd: (fn) => handlers.push(fn) } },
     navigator: { mediaDevices: { getUserMedia: async () => { const s = mkStream(withAudio); return s; } } },
     RTCPeerConnection: FakePC, RTCRtpSender: { getCapabilities: () => ({ codecs: [] }) },
+    PhoneCam: { attach() {}, detach() {}, async handle() {} }, // the phone camera panel (phonecam.js) has its own test
     MediaRecorder: FakeMediaRecorder, MediaStream: class { constructor(t) { this.tracks = t; } },
     setInterval: () => 1, clearInterval() {}, setTimeout, clearTimeout, document: { getElementById: () => ({}) },
   };

@@ -208,6 +208,17 @@ class ScreenClient(
     @Volatile private var wantWindows = false
     private var pingN = 0
 
+    // <phonemedia> Camera and microphone to the PC (PhoneMedia.kt). Nothing starts until the "Camera and mic" sheet asks.
+    private val media = PhoneMediaSession(scope, PhoneMediaGlue(appContext, { pcon }, { send(it) }))
+    /** What is being sent to the PC (camera, microphone, which camera, and the PC's answer). */
+    val phoneMedia: StateFlow<PhoneMediaState> = media.state
+    fun setPhoneCamera(on: Boolean) = media.setCamera(on)
+    fun setPhoneMicrophone(on: Boolean) = media.setMicrophone(on)
+    fun setPhoneCameraFront(front: Boolean) = media.setFront(front)
+    /** Everything off now (the app left the screen). */
+    fun stopPhoneMedia(note: MediaNote = MediaNote.None) = media.stopAll(note)
+    // </phonemedia>
+
     private val accLock = Any()
     private var accDx = 0f
     private var accDy = 0f
@@ -503,6 +514,7 @@ class ScreenClient(
     private fun deviceName() = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}".take(48)
 
     private fun teardown() {
+        media.onLinkClosed() // <phonemedia> camera and microphone stop with the connection
         val peer = pcon
         pcon = null
         dc = null
@@ -769,6 +781,7 @@ class ScreenClient(
                 }
             }
             "file-accept", "file-reject", "file-done" -> FileMsg.parse(m)?.let(files::onReply)
+            "renegotiate-answer", "renegotiate-error", "media-stop" -> media.onMessage(m) // <phonemedia>
             "pong" -> _rtt.value = (System.currentTimeMillis() - m.optLong("ts")).toInt().coerceAtLeast(0)
             else -> when (val ev = HostEvents.parse(m)) {
                 is HostEvent.Locked -> _locked.value = ev.on

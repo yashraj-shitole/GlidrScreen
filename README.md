@@ -77,6 +77,12 @@ with a debug key and the PC app and installer are not code-signed, so Windows Sm
   PC owner switches it on and chooses which actions the phone may use. The phone only sends an action ID, restart and
   shutdown need a confirmation and run after a 15 second delay that can be cancelled.
 
+**Camera and microphone to the PC**
+* A *Camera and mic* button in the viewer sends the phone's camera (front or back, 720p at 24 fps) and / or microphone to
+  the PC, over the same encrypted peer-to-peer connection. Android asks for permission only when you switch one on,
+  after saying why. A *Camera on* / *Mic on* tag stays on screen while it runs, and everything stops when you leave the
+  app or the session ends. The PC owner has to allow it first (off by default), see below.
+
 **Clipboard**
 * Send the phone's clipboard text to the PC, paste the PC's clipboard on the phone, or keep them in sync. Text goes
   straight to the PC over the encrypted link, never through a server (256 KB limit, opt-in).
@@ -105,11 +111,24 @@ with a debug key and the PC app and installer are not code-signed, so Windows Sm
   view-only link.
 * Optional: share the PC's audio, end the session when the PC locks, two-way clipboard (the phone asks for it).
 * Optional: *Record sessions on this PC* saves what the phone views to `VideosGlidr` (off by default; the phone shows "PC is recording" while it runs).
+* *Allow the phone to send its camera and microphone* (off by default; also needs remote control on and a phone that is
+  not view only). The picture opens in a window titled "Glidr Screen: phone camera" (with a mirror switch and **Stop**), the
+  sound plays through the audio output you pick in that window. See the next section for what this is and is not.
 * *Test connection* checks the signaling server, STUN and the PC's clock.
 * `glidr-screen://pause`, `resume` and `disconnect` links for scripts and Stream Deck buttons (nothing else is accepted).
 * Advanced: PC name and your own signaling (ntfy) server.
 * Checks GitHub for updates and shows a download link. The start-with-Windows entry repairs itself if the copy it
   pointed to was moved or broken.
+
+### Using the phone as a webcam or microphone on the PC
+Glidr Screen **does not install a webcam or microphone driver**, and Windows has no built-in way to turn a network
+camera or microphone into one without a virtual-device driver. So the phone's camera is a **window** on the PC and its
+microphone is **played through an audio output**. To use them in other programs:
+* **Camera:** capture the "Glidr Screen: phone camera" window in [OBS Studio](https://obsproject.com) (Window Capture),
+  start *OBS Virtual Camera*, and pick "OBS Virtual Camera" as the webcam in your meeting or recording app. OBS is a
+  separate program that you install yourself.
+* **Microphone:** install a virtual audio cable of your choice, choose its *playback* device as the audio output in the
+  camera window, and pick its *recording* side as the microphone in the other program. No such cable is included.
 
 ### Privacy and security
 * Video, mouse and keyboard go directly between phone and PC over WebRTC (DTLS-SRTP). No media server, no relay of ours.
@@ -117,6 +136,9 @@ with a debug key and the PC app and installer are not code-signed, so Windows Sm
   rendezvous server only passes three sealed setup messages (AES-256-GCM, keys from HKDF-SHA256) and never sees the
   video or your input.
 * No account, no sign-up.
+* Camera and microphone leave the phone only after you switch them on, only to your paired PC (the same encrypted
+  connection, no server in between), only while the PC owner allows it, and are never recorded or saved by Glidr
+  Screen. The PC owner can press **Stop**, close the window or switch the setting off at any time.
 
 ### Embeddable
 `:screenview` is an Android library, so the viewer can be dropped into another app (embedding it in Glidr is planned,
@@ -166,6 +188,10 @@ android: gradlew.bat :screenview:testDebugUnitTest   crypto cross-compat with th
   networks; the emulator sat behind the same router as the PC. Newer features (audio, clipboard, pointer follow,
   hardware keyboard and mouse, Wake-on-LAN, per-phone access limits) are unit-tested and the host self-test passes,
   but they have not been tried live between a real phone and PC.
+* The phone camera and microphone feature is unit-tested (state machine, SDP checks, policy, the PC panel with fakes) but
+  has **not been tried with a real camera, a real phone or a real PC session yet**. It needs Android 10 or newer, stops when
+  the app leaves the screen (Android does not let a camera run from the background without a foreground service), and
+  there is no virtual webcam or microphone device (see above).
 * Peer-to-peer fails when both sides are behind symmetric NAT (some mobile carriers). IPv6 normally avoids it. A TURN
   server can be added in `settings.json` (`turn`), at the price of relayed media.
 * The public ntfy.sh limits anonymous use to roughly 250 messages per IP address per day, and every connection uses a

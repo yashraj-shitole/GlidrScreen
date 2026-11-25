@@ -4,6 +4,8 @@ let state = null;
 let editing = false;
 const TOGGLES = ['allowControl', 'allowActions', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart', 'allowLan', 'recordSessions'];
 
+TOGGLES.push('allowPhoneMedia'); // phone camera and microphone (src/phonemedia.js)
+
 const STATUS = {
   waiting: ['waiting', 'Ready'], connecting: ['connecting', 'Connecting'],
   streaming: ['streaming', 'Streaming'], paused: ['paused', 'Paused'],

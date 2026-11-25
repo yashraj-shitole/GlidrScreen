@@ -63,12 +63,42 @@ function createEngineWindow() {
   engineWin.webContents.on('console-message', (e) => {
     if (SELFTEST || process.env.GLIDR_DEBUG) console.log('[engine]', e.message || e);
   });
+  // <phonemedia> closing the camera window with its title bar means "Stop"; the window itself stays (it is the engine)
+  engineWin.on('close', (e) => {
+    if (quitting) return;
+    e.preventDefault();
+    core?.phoneMedia.windowClosed(core.sess);
+    hidePhoneWindow();
+  });
+  // </phonemedia>
   ipcMain.on('evt', (e, m) => {
     if (e.sender !== engineWin.webContents) return;
     if (m.t === 'ready') engine.emit('ready');
     engine.emit('evt', m);
   });
 }
+
+// <phonemedia> The engine renderer owns the peer connection, and a MediaStream cannot cross windows, so the phone's camera
+// is shown in the engine window itself: it is shown while tracks arrive (titled "Glidr Screen: phone camera") and
+// hidden again when they end, the session ends or the owner presses Stop. See renderer/phonecam.js.
+function showPhoneWindow() {
+  if (!engineWin || engineWin.isDestroyed()) return;
+  if (!engineWin.isVisible()) {
+    engineWin.setSkipTaskbar(false);
+    engineWin.setSize(960, 600);
+    engineWin.center();
+    engineWin.setTitle('Glidr Screen: phone camera');
+    engineWin.showInactive(); // never steals the keyboard focus from what the owner is typing
+  }
+}
+
+function hidePhoneWindow() {
+  if (!engineWin || engineWin.isDestroyed() || !engineWin.isVisible()) return;
+  engineWin.hide();
+  engineWin.setSkipTaskbar(true);
+  engineWin.setSize(320, 240);
+}
+// </phonemedia>
 
 function createUiWindow() {
   // First run (nothing paired, nothing open): show the QR straight away instead of an extra "Pair a new phone" click.
@@ -184,6 +214,7 @@ async function buildState() {
       codec: store.get('codec'), signalBase: store.get('signalBase'),
       autostart: app.getLoginItemSettings(LOGIN_ITEM).openAtLogin,
       keepAwake: store.get('keepAwake'), endOnLock: store.get('endOnLock'), shareAudio: store.get('shareAudio'),
+      allowPhoneMedia: store.get('allowPhoneMedia') === true, // <phonemedia>
       allowActions: store.get('allowActions') === true,
       allowLan: store.get('allowLan') !== false,
       recordSessions: store.get('recordSessions') === true, // session recording
@@ -268,6 +299,7 @@ function registerIpc() {
       case 'setting': {
         const patch = {};
         for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio', 'allowLan', 'recordSessions']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
+        if (typeof arg.allowPhoneMedia === 'boolean') patch.allowPhoneMedia = arg.allowPhoneMedia; // <phonemedia>
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8', 'vp9', 'av1'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -281,6 +313,7 @@ function registerIpc() {
         if ('allowControl' in patch) core.controlChanged();
         if ('allowActions' in patch) core.actionsChanged();
         if ('allowFiles' in patch) core.filesChanged();
+        if ('allowPhoneMedia' in patch) core.phoneMediaChanged(); // <phonemedia>
         if ('keepAwake' in patch) keepAwake.sync();
         if ('recordSessions' in patch) core.recordingChanged(); // session recording: starts / stops at once in a live session
         break;
@@ -379,6 +412,7 @@ app.whenReady().then(async () => {
     if (tray) tray.displayBalloon({ title: 'Glidr Screen', content: `Saved a recording of ${from}` });
   });
   core.on('log', (m) => { if (SELFTEST || process.env.GLIDR_DEBUG) console.log('[host]', m); });
+  core.phoneMedia.on('window', (w) => { if (w.show) showPhoneWindow(); else hidePhoneWindow(); }); // <phonemedia>
   screen.on('display-added', () => core.displaysChanged());
   screen.on('display-removed', () => core.displaysChanged());
   screen.on('display-metrics-changed', () => core.displaysChanged());

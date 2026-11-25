@@ -182,6 +182,12 @@ object Msg {
      * after the person confirmed a dangerous action (restart, shut down) on the phone.
      */
     fun action(id: String, confirm: Boolean = false) = JSONObject().put("t", "action").put("id", id).put("confirm", confirm)
+
+    /**
+     * Phone camera / microphone: our new offer for the running connection (see [PhoneMediaSession]). The PC answers with
+     * `renegotiate-answer` or `renegotiate-error`. The SDP stays under [PHONE_MEDIA_MAX_SDP]; the session checks that first.
+     */
+    fun renegotiate(sdp: String) = JSONObject().put("t", "renegotiate").put("sdp", sdp)
 }
 
 /** Frame rates the PC offers; the host clamps anything else. */
