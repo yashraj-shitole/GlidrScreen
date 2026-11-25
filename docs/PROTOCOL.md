@@ -79,7 +79,7 @@ re-pairing):
 
 | state | when |
 |-------|------|
-| `online` | about 4 s after the app starts, whenever sharing is switched on, every 5 minutes while sharing is on, and shortly (3 s, for the network) after the PC wakes from sleep |
+| `online` | about 4 s after the app starts, whenever sharing is switched on, every 2 hours while sharing is on (the public ntfy.sh allows about 250 anonymous messages a day per IP, so markers are posted on changes and refreshed slowly; after an HTTP 429 the host stops posting markers for an hour), and shortly (3 s, for the network) after the PC wakes from sleep |
 | `sleep` | the PC is going to sleep (Windows `suspend`; best effort, the request may not leave in time) |
 | `paused` | sharing was paused (also sent at start-up and after waking when sharing is off) |
 | `quit` | the app is closing; the host waits at most 1.5 s for this to be sent |
@@ -95,7 +95,7 @@ server, a self-hosted one may differ) the answer is "no sign of the PC". The age
 | newest marker | text |
 |---------------|------|
 | `online`, under 7 min old | PC online |
-| `online`, 7 min to 2 h old | Last seen 12 min ago (the heartbeat is 5 min, so older means the app probably stopped) |
+| `online`, 7 min to 2 h old | Last seen 12 min ago (the heartbeat is 2 h, so this is when the PC last reported, not proof that it is still on) |
 | `online`, over 2 h old | Last seen 3 h ago (same wording, the unit just grows) |
 | `sleep` | PC went to sleep 12 min ago |
 | `paused` | Sharing paused on the PC |

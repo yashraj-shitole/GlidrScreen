@@ -150,6 +150,10 @@ android: gradlew.bat :screenview:testDebugUnitTest   crypto cross-compat with th
   but they have not been tried live between a real phone and PC.
 * Peer-to-peer fails when both sides are behind symmetric NAT (some mobile carriers). IPv6 normally avoids it. A TURN
   server can be added in `settings.json` (`turn`), at the price of relayed media.
+* The public ntfy.sh limits anonymous use to roughly 250 messages per IP address per day, and every connection uses a
+  few. Presence markers are therefore posted only on changes and refreshed every 2 hours. If you connect very often,
+  or test a lot (a day of testing can use the whole quota), the apps say "The signaling server's daily message limit
+  was reached"; run your own ntfy server (host > Settings > Advanced) to remove the limit.
 * The rendezvous defaults to the public ntfy.sh. It only carries sealed messages; point both apps at your own ntfy server
   for full control (host > Settings > Advanced; the QR carries the URL to the phone).
 * Windows blocks capture and input for the lock screen, UAC prompts and elevated windows unless the host runs as admin.

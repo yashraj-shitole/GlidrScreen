@@ -6,7 +6,11 @@
 // Free of Electron: the signaling object, the store, the clock and the timers are injected, so it is unit tested with
 // plain node. Publishing is best effort: every failure is swallowed, presence must never disturb the app.
 
-const HEARTBEAT_MS = 5 * 60_000; // while sharing is on; the phone treats an 'online' marker older than ~7 min as stale
+// The public ntfy.sh allows about 250 anonymous messages per day per IP, and every connection also needs a few. A
+// 5-minute heartbeat (288 a day per phone) would use the whole quota by itself, so markers are posted on real changes
+// and refreshed only every 2 hours. The phone says "Last seen 40 min ago" for an older marker, which stays true.
+const HEARTBEAT_MS = 2 * 60 * 60_000;
+const RATE_LIMIT_BACKOFF_MS = 60 * 60_000; // after a 429 from the server, stay quiet for an hour
 const STARTUP_DELAY_MS = 4_000; // let the signaling stream come up first
 const RESUME_DELAY_MS = 3_000; // the network is often not back yet right after wake
 const QUIT_TIMEOUT_MS = 1_500; // quitting must not wait longer than this for the network
@@ -34,6 +38,7 @@ class Presence {
     this.sharing = false; // last seen value of the store's `sharing`, to notice a change
     this.base = null; // last seen signaling base, a new server needs a fresh marker
     this.announced = new Set(); // slot ids that already got a marker
+    this.blockedUntil = 0; // the server said "quota reached" (HTTP 429): no markers until then
     this.heartbeat = null;
     this.startupTimer = null;
     this.resumeTimer = null;
@@ -58,6 +63,7 @@ class Presence {
    */
   publish(state, { timeoutMs, only } = {}) {
     if (!STATES.includes(state)) return Promise.resolve();
+    if (this.now() < this.blockedUntil) return Promise.resolve(); // backing off, never fight the quota
     let slots;
     try { slots = only || this.#slots(); } catch { return Promise.resolve(); }
     const msg = this.message(state);
@@ -69,8 +75,13 @@ class Presence {
         return Promise.reject(e);
       }
     })).then((results) => {
-      const failed = results.filter((r) => r.status === 'rejected').length;
-      if (failed) this.log(`presence ${state}: ${failed} of ${results.length} publishes failed`);
+      const failed = results.filter((r) => r.status === 'rejected');
+      if (failed.some((r) => /429/.test(String((r.reason && r.reason.message) || r.reason)))) {
+        this.blockedUntil = this.now() + RATE_LIMIT_BACKOFF_MS;
+        this.log('presence: server quota reached, pausing markers for an hour');
+      } else if (failed.length) {
+        this.log(`presence ${state}: ${failed.length} of ${results.length} publishes failed`);
+      }
     });
   }
 
@@ -184,4 +195,4 @@ class Presence {
   }
 }
 
-module.exports = { Presence, STATES, HEARTBEAT_MS, STARTUP_DELAY_MS, RESUME_DELAY_MS, QUIT_TIMEOUT_MS };
+module.exports = { Presence, STATES, HEARTBEAT_MS, RATE_LIMIT_BACKOFF_MS, STARTUP_DELAY_MS, RESUME_DELAY_MS, QUIT_TIMEOUT_MS };

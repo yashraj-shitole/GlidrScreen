@@ -94,7 +94,7 @@ const key = (r, id) => r.data.slots.find((s) => s.id === id).key;
     r.time.advance(5_000);
     r.sent.length = 0;
     r.time.advance(HEARTBEAT_MS);
-    assert.strictEqual(HEARTBEAT_MS, 300_000);
+    assert.strictEqual(HEARTBEAT_MS, 2 * 60 * 60_000, 'a slow refresh: the public ntfy quota is about 250 messages a day');
     assert.deepStrictEqual(r.states(), ['online', 'online']);
     r.time.advance(HEARTBEAT_MS);
     assert.strictEqual(r.sent.length, 4);
@@ -329,6 +329,23 @@ const key = (r, id) => r.data.slots.find((s) => s.id === id).key;
     assert.strictEqual(core.sess, null);
     assert.strictEqual(engine.cmds.length, 0);
     assert.strictEqual(published.length, 0);
+  }
+
+  // a 429 (public ntfy quota reached) pauses markers for an hour, then they resume
+  {
+    let calls = 0, failing = true;
+    const r = rig({ publish: () => { calls++; return failing ? Promise.reject(new Error('publish HTTP 429')) : Promise.resolve(); } });
+    r.time.advance(5_000); // the startup marker: both slots fail with 429
+    await r.tick(); await r.tick();
+    const afterFirst = calls;
+    assert.ok(afterFirst >= 1, 'the first marker was attempted');
+    r.data.sharing = false; r.core.emit('changed'); // a state change inside the back-off window
+    await r.tick();
+    assert.strictEqual(calls, afterFirst, 'nothing is published while backing off');
+    r.time.advance(60 * 60_000 + 1_000); failing = false;
+    r.data.sharing = true; r.core.emit('changed');
+    await r.tick();
+    assert.ok(calls > afterFirst, 'markers resume after the back-off');
   }
 
   console.log('ok');

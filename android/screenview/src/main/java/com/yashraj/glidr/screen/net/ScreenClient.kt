@@ -282,7 +282,7 @@ class ScreenClient(
         is kotlinx.coroutines.TimeoutCancellationException -> e.message ?: "Timed out"
         is java.net.UnknownHostException, is java.net.ConnectException, is java.net.SocketTimeoutException ->
             "No internet connection"
-        else -> e.message ?: "Connection failed"
+        else -> if (e.message?.contains("429") == true) QUOTA_MESSAGE else e.message ?: "Connection failed"
     }
 
     private suspend fun connectOnce(attempt: Int) = coroutineScope {
@@ -329,7 +329,13 @@ class ScreenClient(
                         "busy" -> throw Fatal("Another phone is using this PC right now")
                         // the PC gave up before it could send an offer (for example the screen could not be captured)
                         "bye" -> throw Fatal(
-                            m.optString("reason").let { why -> if (why.isBlank()) "The PC ended the session" else "The PC could not start the session ($why)" },
+                            m.optString("reason").let { why ->
+                                when {
+                                    why.isBlank() -> "The PC ended the session"
+                                    why.contains("429") -> QUOTA_MESSAGE
+                                    else -> "The PC could not start the session ($why)"
+                                }
+                            },
                         )
                         "deny" -> throw Fatal(
                             when (val why = m.optString("reason")) {
@@ -906,5 +912,8 @@ class ScreenClient(
         private const val SHUTDOWN_WINDOW_MS = 20_000L
         private const val MAX_ATTEMPTS = 4
         private const val NO_ANSWER_ATTEMPTS = 2
+
+        /** The public ntfy.sh server allows only so many anonymous messages per IP and day. */
+        const val QUOTA_MESSAGE = "The signaling server's daily message limit was reached. Try again later, or use your own ntfy server (see the README)."
     }
 }
