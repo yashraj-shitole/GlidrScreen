@@ -10,6 +10,7 @@ import android.net.Network
 import android.os.Build
 import android.util.Base64
 import android.util.Log
+import com.yashraj.glidr.screen.signal.LanAddress
 import com.yashraj.glidr.screen.signal.NtfySignaling
 import com.yashraj.glidr.screen.signal.PairedPc
 import com.yashraj.glidr.screen.signal.SignalEvent
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -79,7 +81,13 @@ class ScreenClient(
     private val iceUrls: List<String> = DEFAULT_STUN,
 ) {
     private val appContext = context.applicationContext
-    private val signaling = NtfySignaling(pc.signalBase, pc.keyBytes)
+    private val publicSignaling = NtfySignaling(pc.signalBase, pc.keyBytes)
+    /** The PC's own server on the local network, when its pairing link carried an address (see [LanAddress]); tried first. */
+    private val lanSignaling: NtfySignaling? = pc.lan?.let { NtfySignaling(LanAddress.baseUrl(it), pc.keyBytes, LAN_CONNECT_TIMEOUT_MS) }
+    /** The base the current attempt's offer came from (the answer goes there). */
+    @Volatile private var activeSignaling: NtfySignaling = publicSignaling
+    /** Where `bye` goes: every base this attempt's request was posted to, then only the one that delivered the offer. */
+    @Volatile private var sigTargets: List<NtfySignaling> = emptyList()
 
     private val _state = MutableStateFlow<ConnState>(ConnState.Idle)
     val state: StateFlow<ConnState> = _state.asStateFlow()
@@ -223,7 +231,8 @@ class ScreenClient(
         teardown()
         currentSid?.let { sid ->
             CoroutineScope(Dispatchers.IO).launch {
-                runCatching { signaling.publish(JSONObject().put("t", "bye").put("from", "p").put("sid", sid).put("ts", System.currentTimeMillis())) }
+                val bye = JSONObject().put("t", "bye").put("from", "p").put("sid", sid).put("ts", System.currentTimeMillis())
+                for (target in sigTargets) runCatching { target.publish(bye) }
             }
         }
         currentSid = null
@@ -285,19 +294,63 @@ class ScreenClient(
         else -> if (e.message?.contains("429") == true) QUOTA_MESSAGE else e.message ?: "Connection failed"
     }
 
+    /** One message from the PC and the route it came in on. */
+    private class Inbound(val route: SignalRoute, val json: JSONObject)
+
+    private fun advance(stage: String) { _stage.value = ConnectStages.furthest(_stage.value, stage) }
+
+    /** Reads [inbox] until an offer arrives (returned), or [timeoutMs] pass, or [giveUp] completes (null). busy / deny / bye end the attempt. */
+    private suspend fun awaitOffer(inbox: Channel<Inbound>, giveUp: CompletableDeferred<Unit>?, timeoutMs: Long): Inbound? =
+        withTimeoutOrNull(timeoutMs) {
+            var found: Inbound? = null
+            while (found == null) {
+                val m = (if (giveUp == null) inbox.receive() else select<Inbound?> { inbox.onReceive { it }; giveUp.onAwait { null } })
+                    ?: return@withTimeoutOrNull null
+                when (m.json.optString("t")) {
+                    "offer" -> found = m
+                    "busy" -> throw Fatal("Another phone is using this PC right now")
+                    // the PC gave up before it could send an offer (for example the screen could not be captured)
+                    "bye" -> throw Fatal(
+                        m.json.optString("reason").let { why ->
+                            when {
+                                why.isBlank() -> "The PC ended the session"
+                                why.contains("429") -> QUOTA_MESSAGE
+                                else -> "The PC could not start the session ($why)"
+                            }
+                        },
+                    )
+                    "deny" -> throw Fatal(
+                        when (val why = m.json.optString("reason")) {
+                            "", "paused" -> "Sharing is paused on the PC"
+                            "no display" -> "The PC has no display to share"
+                            else -> "The PC refused the connection ($why)"
+                        },
+                    )
+                }
+            }
+            found
+        }
+
     private suspend fun connectOnce(attempt: Int) = coroutineScope {
         val sid = ByteArray(8).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
         currentSid = sid
         _stage.value = ""
-        val inbox = Channel<JSONObject>(Channel.UNLIMITED)
-        val opened = CompletableDeferred<Unit>()
-        val sigJob = launch {
+        sigTargets = emptyList()
+        val inbox = Channel<Inbound>(Channel.UNLIMITED)
+        val lan = lanSignaling
+        val planner = RoutePlanner(lan != null, { System.nanoTime() / 1_000_000 })
+        val lanOpened = CompletableDeferred<Unit>()
+        val lanGaveUp = CompletableDeferred<Unit>()
+        val pubOpened = CompletableDeferred<Unit>()
+
+        /** Streams one base into [inbox]; before its first Open a failure ends the attempt's use of that base, afterwards it is retried. */
+        fun listen(sig: NtfySignaling, route: SignalRoute, opened: CompletableDeferred<Unit>): Job = launch {
             while (isActive) {
                 try {
-                    signaling.events().collect { ev ->
+                    sig.events().collect { ev ->
                         when (ev) {
                             SignalEvent.Open -> opened.complete(Unit)
-                            is SignalEvent.Message -> if (ev.json.optString("from") == "h" && ev.json.optString("sid") == sid) inbox.trySend(ev.json)
+                            is SignalEvent.Message -> if (ev.json.optString("from") == "h" && ev.json.optString("sid") == sid) inbox.trySend(Inbound(route, ev.json))
                         }
                     }
                 } catch (e: CancellationException) {
@@ -309,48 +362,78 @@ class ScreenClient(
                 delay(2_000)
             }
         }
+
+        fun request() = SignalMsg.request(sid, System.currentTimeMillis(), deviceName(), WebRtcRuntime.decoderNames(appContext))
+
+        var lanJob: Job? = null
+        var lanRequest: Job? = null
+        var pubJob: Job? = null
         try {
             if (attempt == 0) _state.value = ConnState.Connecting("Contacting PC")
-            withTimeoutOrNull(15_000) { opened.await() } ?: throw Exception("Could not reach the signaling server. Check your internet connection.")
-            _stage.value = ConnectStages.SIGNALING
-            signaling.publish(
-                SignalMsg.request(sid, System.currentTimeMillis(), deviceName(), WebRtcRuntime.decoderNames(appContext)),
-            )
-            _stage.value = ConnectStages.REQUEST_SENT
-            _state.value = waitingState(attempt)
-
-            val offer = withTimeoutOrNull(25_000) {
-                var found: JSONObject? = null
-                while (found == null) {
-                    val m = inbox.receive()
-                    when (m.optString("t")) {
-                        "offer" -> found = m
-                        "busy" -> throw Fatal("Another phone is using this PC right now")
-                        // the PC gave up before it could send an offer (for example the screen could not be captured)
-                        "bye" -> throw Fatal(
-                            m.optString("reason").let { why ->
-                                when {
-                                    why.isBlank() -> "The PC ended the session"
-                                    why.contains("429") -> QUOTA_MESSAGE
-                                    else -> "The PC could not start the session ($why)"
-                                }
-                            },
-                        )
-                        "deny" -> throw Fatal(
-                            when (val why = m.optString("reason")) {
-                                "", "paused" -> "Sharing is paused on the PC"
-                                "no display" -> "The PC has no display to share"
-                                else -> "The PC refused the connection ($why)"
-                            },
-                        )
+            planner.begin()
+            var first: Inbound? = null
+            if (lan != null) {
+                // The local network first. Whatever goes wrong here is not an error by itself: the public server takes over.
+                lanJob = listen(lan, SignalRoute.LAN, lanOpened)
+                lanRequest = launch {
+                    try {
+                        withTimeout(planner.graceMs) { lanOpened.await() }
+                        advance(ConnectStages.LAN)
+                        lan.publish(request())
+                        sigTargets = sigTargets + lan
+                        advance(ConnectStages.REQUEST_SENT)
+                        _state.value = waitingState(attempt)
+                    } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                        planner.onLanFailed(); lanGaveUp.complete(Unit)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.i(TAG, "LAN signaling unavailable: ${e.javaClass.simpleName}")
+                        planner.onLanFailed(); lanGaveUp.complete(Unit)
                     }
                 }
-                found
-            } ?: throw NoAnswer(
+                first = awaitOffer(inbox, lanGaveUp, planner.publicDelayMs())
+            }
+            if (first == null) {
+                // No LAN address, or the LAN did not deliver in time: the public signaling server joins in.
+                pubJob = listen(publicSignaling, SignalRoute.PUBLIC, pubOpened)
+                val publicUp = try {
+                    withTimeoutOrNull(15_000) { pubOpened.await() } != null
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (!planner.lanViable) throw e
+                    false
+                }
+                if (publicUp) {
+                    advance(ConnectStages.SIGNALING)
+                    try {
+                        publicSignaling.publish(request())
+                        sigTargets = sigTargets + publicSignaling
+                        advance(ConnectStages.REQUEST_SENT)
+                        _state.value = waitingState(attempt)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        if (!planner.lanViable) throw e // the LAN may still answer; only without it is this the failure
+                    }
+                } else if (!planner.lanViable) {
+                    throw Exception("Could not reach the signaling server. Check your internet connection.")
+                }
+                first = awaitOffer(inbox, null, 25_000)
+            }
+            val offerIn = first ?: throw NoAnswer(
                 "The PC did not answer. Check that Glidr Screen is running on it and online. If it still fails, " +
                     "this phone may have been removed on the PC, or the PC's signaling server changed: pair again.",
             )
-            _stage.value = ConnectStages.OFFER
+            val route = planner.onOffer(offerIn.route)
+            val active = if (route == SignalRoute.LAN) lan!! else publicSignaling
+            activeSignaling = active
+            sigTargets = listOf(active) // the answer and the later bye go where the offer came from
+            if (route == SignalRoute.LAN) pubJob?.cancel() else lanJob?.cancel()
+            lanRequest?.cancel()
+            val offer = offerIn.json
+            advance(ConnectStages.OFFER)
             applyHostName(offer.optString("host"))
             localTypes.clear(); iceState = "new"; gatherState = "new"
             remoteSummary = summary(Regex("a=candidate:.* typ ([a-z]+)").findAll(offer.getString("sdp")).groupingBy { it.groupValues[1] }.eachCount())
@@ -367,12 +450,12 @@ class ScreenClient(
             setLocal(peer, answer)
             withTimeoutOrNull(4_000) { gathered.await() }
             val sdp = peer.localDescription.description
-            signaling.publish(JSONObject().put("t", "answer").put("from", "p").put("sid", sid).put("ts", System.currentTimeMillis()).put("sdp", sdp))
+            activeSignaling.publish(JSONObject().put("t", "answer").put("from", "p").put("sid", sid).put("ts", System.currentTimeMillis()).put("sdp", sdp))
 
             val bye = launch {
                 for (m in inbox) {
-                    if (m.optString("t") == "bye") {
-                        ended.complete("bye:" + m.optString("reason"))
+                    if (m.route == route && m.json.optString("t") == "bye") {
+                        ended.complete("bye:" + m.json.optString("reason"))
                         break
                     }
                 }
@@ -399,7 +482,7 @@ class ScreenClient(
                 throw Fatal(if (why.isBlank()) "The PC ended the session" else "The PC ended the session ($why)")
             }
         } finally {
-            sigJob.cancel()
+            lanJob?.cancel(); lanRequest?.cancel(); pubJob?.cancel()
             inbox.close()
         }
     }
@@ -913,6 +996,9 @@ class ScreenClient(
         private const val NO_ANSWER_ATTEMPTS = 2
 
         /** The public ntfy.sh server allows only so many anonymous messages per IP and day. */
+        /** An unreachable LAN address (another network, a stale one) is given up on quickly; the public server takes over. */
+        private const val LAN_CONNECT_TIMEOUT_MS = 3_000
+
         const val QUOTA_MESSAGE = "The signaling server's daily message limit was reached. Try again later, or use your own ntfy server (see the README)."
     }
 }

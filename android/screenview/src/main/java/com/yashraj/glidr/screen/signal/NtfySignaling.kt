@@ -24,16 +24,20 @@ class RecentMessage(val json: JSONObject, val serverTimeMs: Long)
 /**
  * Rendezvous over an ntfy topic (https://ntfy.sh, self-hostable). Only a few small sealed messages pass through
  * it per connection and nothing is trusted from it: every message is AES-GCM sealed with the pairing key.
+ *
+ * [base] may also be `http://<pc-lan-ip>:<port>`, the PC's own ntfy-compatible LAN server (see [LanAddress] and
+ * docs/PROTOCOL.md, "LAN signaling"); plain HTTP is fine there because nothing readable is ever sent.
+ * [connectTimeoutMs] is shorter for the LAN, where an unreachable address should be given up on quickly.
  */
-class NtfySignaling(private val base: String, key: ByteArray) {
+class NtfySignaling(private val base: String, key: ByteArray, private val connectTimeoutMs: Int = 10_000) {
     private val slot = SignalCrypto.deriveSlot(key)
     private val root = base.trimEnd('/')
 
     /** Live stream of authentic messages (and [SignalEvent.Open]); ends with an exception on network failure. */
     fun events(): Flow<SignalEvent> = callbackFlow {
         val conn = URL("$root/${slot.topic}/json").openConnection() as HttpURLConnection
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 120_000 // ntfy sends a keepalive every 45 s
+        conn.connectTimeout = connectTimeoutMs
+        conn.readTimeout = 120_000 // ntfy sends a keepalive every 45 s (the PC's LAN server every 30 s)
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch {
             try {
@@ -94,7 +98,7 @@ class NtfySignaling(private val base: String, key: ByteArray) {
         val conn = URL("$root/${slot.topic}").openConnection() as HttpURLConnection
         try {
             conn.requestMethod = "POST"
-            conn.connectTimeout = 10_000
+            conn.connectTimeout = connectTimeoutMs
             conn.readTimeout = 10_000
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "text/plain")

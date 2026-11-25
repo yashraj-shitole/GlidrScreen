@@ -94,11 +94,22 @@ function open(encKey, frame) {
 /**
  * Pairing link. Optional [mac] (12 hex digits) and [broadcast] (IPv4) add `&m=<MAC>&b=<ip>` for Wake-on-LAN, and only
  * when BOTH are valid; otherwise the link is exactly the one older versions produced.
+ * Optional [lan] ("a.b.c.d:port", see lanserver.js) appends `&l=<lan>` last, only when it is a valid IPv4 and port.
  */
-function toLink(key, hostName, signalBase, mac, broadcast) {
+function toLink(key, hostName, signalBase, mac, broadcast, lan) {
   const q = new URLSearchParams({ v: '1', k: key.toString('base64url'), n: hostName, s: signalBase });
   if (isMac12(mac) && isIpv4(broadcast)) { q.append('m', mac.toUpperCase()); q.append('b', broadcast); }
+  if (isLanEndpoint(lan)) q.append('l', lan);
   return `glidr://screen?${q}`;
+}
+
+/** "a.b.c.d:port" with a dotted-quad IPv4 and a port 1..65535 (no leading zeros): the `l` pairing parameter. */
+function isLanEndpoint(s) {
+  if (typeof s !== 'string') return false;
+  const i = s.lastIndexOf(':');
+  if (i < 0) return false;
+  const port = s.slice(i + 1);
+  return isIpv4(s.slice(0, i)) && /^[1-9]\d{0,4}$/.test(port) && Number(port) <= 65535;
 }
 
 /** 26 base32 characters grouped for typing: ABCD-EFGH-... */
@@ -111,4 +122,4 @@ function fromManualCode(code) {
   return key.length >= 16 ? key.subarray(0, 16) : null;
 }
 
-module.exports = { newKey, deriveSlot, seal, open, toLink, toManualCode, fromManualCode, hkdf, base32 };
+module.exports = { isLanEndpoint, newKey, deriveSlot, seal, open, toLink, toManualCode, fromManualCode, hkdf, base32 };

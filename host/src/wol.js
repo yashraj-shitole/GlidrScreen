@@ -36,12 +36,8 @@ function normalizeMac(mac) {
 const isV4 = (a) => a && (a.family === 'IPv4' || a.family === 4);
 const isPrivate = (ip) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(ip);
 
-/**
- * The primary physical adapter as {mac: "AABBCCDDEEFF", broadcast: "192.168.1.255"}, or null.
- * Skips internal, virtual and VPN adapters, all-zero MACs and link-local (169.254.x.x) addresses; prefers an adapter
- * with a private IPv4 address, then the first one the OS lists.
- */
-function primaryAdapter(networkInterfaces = os.networkInterfaces) {
+/** The adapter choice shared by Wake-on-LAN and LAN signaling: {mac, broadcast, address, priv} or null. */
+function pickAdapter(networkInterfaces) {
   let ifaces;
   try { ifaces = networkInterfaces() || {}; } catch { return null; }
   let best = null;
@@ -52,11 +48,26 @@ function primaryAdapter(networkInterfaces = os.networkInterfaces) {
       const mac = normalizeMac(a.mac);
       const broadcast = broadcastOf(a.address, a.netmask);
       if (!mac || !broadcast || a.address.startsWith('169.254.')) continue;
-      const cand = { mac, broadcast, priv: isPrivate(a.address) };
+      const cand = { mac, broadcast, address: a.address, priv: isPrivate(a.address) };
       if (!best || (cand.priv && !best.priv)) best = cand;
     }
   }
+  return best;
+}
+
+/**
+ * The primary physical adapter as {mac: "AABBCCDDEEFF", broadcast: "192.168.1.255"}, or null.
+ * Skips internal, virtual and VPN adapters, all-zero MACs and link-local (169.254.x.x) addresses; prefers an adapter
+ * with a private IPv4 address, then the first one the OS lists.
+ */
+function primaryAdapter(networkInterfaces = os.networkInterfaces) {
+  const best = pickAdapter(networkInterfaces);
   return best && { mac: best.mac, broadcast: best.broadcast };
 }
 
-module.exports = { primaryAdapter, broadcastOf, normalizeMac, isIpv4, isMac12, SKIP_NAME };
+/** The IPv4 address of that same adapter (for LAN signaling, see lanserver.js), or null. */
+function primaryLanAddress(networkInterfaces = os.networkInterfaces) {
+  return pickAdapter(networkInterfaces)?.address ?? null;
+}
+
+module.exports = { primaryAdapter, primaryLanAddress, broadcastOf, normalizeMac, isIpv4, isMac12, SKIP_NAME };

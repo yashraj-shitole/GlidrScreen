@@ -23,6 +23,8 @@ data class PairedPc(
     /** The PC's network adapter address (12 hex chars) and IPv4 broadcast address, when the PC shared them: enables Wake-on-LAN. */
     val mac: String? = null,
     val broadcast: String? = null,
+    /** The PC's LAN signaling address `a.b.c.d:port` (see [LanAddress]), when its link carried a valid one: tried before [signalBase]. */
+    val lan: String? = null,
 ) {
     val keyBytes: ByteArray get() = Base64.getUrlDecoder().decode(key)
 }
@@ -35,6 +37,8 @@ data class PairingInfo(
     /** Optional `m=` and `b=` of the link, already validated (see [WakeOnLan]); null when absent or malformed. */
     val mac: String? = null,
     val broadcast: String? = null,
+    /** Optional `l=` of the link, already validated by [LanAddress.clean]; null when absent or malformed. */
+    val lan: String? = null,
 ) {
     /** The key as [PairedPc.key] stores it, to tell whether this PC is already paired. */
     val keyText: String get() = Base64.getUrlEncoder().withoutPadding().encodeToString(key)
@@ -58,6 +62,7 @@ object PairingParser {
             q["s"]?.takeIf { it.startsWith("https://") || it.startsWith("http://") } ?: DEFAULT_SIGNAL_BASE,
             WakeOnLan.cleanMac(q["m"]),
             WakeOnLan.cleanBroadcast(q["b"]),
+            LanAddress.clean(q["l"]),
         )
     } catch (_: Exception) {
         null
@@ -82,6 +87,7 @@ class PairingStore(context: Context) {
             PairedPc(
                 o.getString("id"), o.getString("name"), o.getString("key"), o.optString("base", DEFAULT_SIGNAL_BASE), o.optLong("used"), o.optLong("live"),
                 WakeOnLan.cleanMac(o.optString("mac", "")), WakeOnLan.cleanBroadcast(o.optString("bcast", "")),
+                LanAddress.clean(o.optString("lan", "")),
             )
         }.sortedByDescending { it.lastUsed }
     } catch (_: Exception) {
@@ -94,6 +100,7 @@ class PairingStore(context: Context) {
             val o = JSONObject().put("id", it.id).put("name", it.name).put("key", it.key).put("base", it.signalBase).put("used", it.lastUsed).put("live", it.lastLive)
             it.mac?.let { m -> o.put("mac", m) }
             it.broadcast?.let { b -> o.put("bcast", b) }
+            it.lan?.let { l -> o.put("lan", l) }
             arr.put(o)
         }
         prefs.edit().putString("pcs", arr.toString()).apply()
@@ -108,6 +115,7 @@ class PairingStore(context: Context) {
         val pc = PairedPc(
             key.take(8), info.hostName, key, info.signalBase, System.currentTimeMillis(),
             mac = info.mac ?: old?.mac, broadcast = info.broadcast ?: old?.broadcast,
+            lan = info.lan ?: old?.lan, // a typed code carries no address; a changed address arrives with the next link
         )
         save(existing.filterNot { it.key == key } + pc)
         return pc

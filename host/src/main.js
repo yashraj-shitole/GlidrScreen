@@ -19,6 +19,7 @@ if (!primaryInstance) app.quit();
 const QRCode = require('qrcode');
 const { Store, UNCLAIMED_TTL_MS } = require('./store');
 const { Signaling } = require('./signaling');
+const { LanServer, isPrivateAddress } = require('./lanserver');
 const { InputInjector } = require('./input');
 const { HostCore } = require('./host');
 const displays = require('./displays');
@@ -36,7 +37,7 @@ const diagnose = require('./diagnose');
 const { Presence } = require('./presence');
 const Actions = require('./actions');
 
-let store, signaling, input, core, engineWin, uiWin, tray, updates, updater, pauseTimer, keepAwake;
+let store, signaling, lan, input, core, engineWin, uiWin, tray, updates, updater, pauseTimer, keepAwake;
 let notifiedVersion = null;
 const engine = new EventEmitter();
 engine.send = (cmd) => { if (engineWin && !engineWin.isDestroyed()) engineWin.webContents.send('cmd', cmd); };
@@ -123,11 +124,35 @@ function wolInfo() {
   return wolCache.v;
 }
 
+/** This PC's address for LAN signaling as "a.b.c.d:port" (see lanserver.js), or null when it is off or the PC has no private LAN address. */
+let lanCache = { at: 0, v: null };
+function lanEndpoint() {
+  if (!lan?.listening) return null;
+  if (Date.now() - lanCache.at > 30_000) lanCache = { at: Date.now(), v: wol.primaryLanAddress() };
+  const ip = lanCache.v;
+  return ip && isPrivateAddress(ip) ? `${ip}:${lan.port}` : null;
+}
+
+/** Starts or stops the LAN signaling server to match the setting. The port is chosen once and kept, so pairing links stay valid. */
+async function applyLan() {
+  lanCache = { at: 0, v: null };
+  try {
+    if (store.get('allowLan') !== false && !SELFTEST) {
+      const port = await lan.start(store.get('lanPort'));
+      if (port !== store.get('lanPort')) store.set({ lanPort: port });
+    } else {
+      await lan.stop();
+    }
+  } catch (e) {
+    core?.emit('log', 'LAN signaling unavailable: ' + (e.code || e.message)); // no free port or no permission: ntfy still works
+  }
+}
+
 /** Pairing link for a slot. Guests are view only and temporary, so their link does not carry this PC's MAC address. */
 function linkFor(slot) {
   const key = Buffer.from(slot.key, 'base64url');
   const w = slot.viewOnly ? null : wolInfo();
-  return crypto.toLink(key, store.get('hostName'), store.get('signalBase'), w?.mac, w?.broadcast);
+  return crypto.toLink(key, store.get('hostName'), store.get('signalBase'), w?.mac, w?.broadcast, lanEndpoint());
 }
 
 function actionCfg() {
@@ -160,6 +185,7 @@ async function buildState() {
       autostart: app.getLoginItemSettings(LOGIN_ITEM).openAtLogin,
       keepAwake: store.get('keepAwake'), endOnLock: store.get('endOnLock'), shareAudio: store.get('shareAudio'),
       allowActions: store.get('allowActions') === true,
+      allowLan: store.get('allowLan') !== false,
     },
     // The PC's own list (paths and arguments are shown here only; the phone is only ever sent id, label and danger).
     actions: {
@@ -240,7 +266,7 @@ function registerIpc() {
         store.revoke(arg); store.createSlot(); core.refreshSlots(); break;
       case 'setting': {
         const patch = {};
-        for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
+        for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio', 'allowLan']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8', 'vp9', 'av1'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -250,6 +276,7 @@ function registerIpc() {
         if (typeof arg.autostart === 'boolean') app.setLoginItemSettings({ ...LOGIN_ITEM, openAtLogin: arg.autostart });
         store.set(patch);
         if (patch.signalBase) signaling.setBase(patch.signalBase);
+        if ('allowLan' in patch) await applyLan();
         if ('allowControl' in patch) core.controlChanged();
         if ('allowActions' in patch) core.actionsChanged();
         if ('allowFiles' in patch) core.filesChanged();
@@ -317,6 +344,8 @@ app.whenReady().then(async () => {
   if (!primaryInstance) return;
   store = new Store(app.getPath('userData'));
   signaling = new Signaling(store.get('signalBase'));
+  lan = new LanServer({ log: (m) => core?.emit('log', m) });
+  signaling.attachLan(lan);
   input = new InputInjector();
   core = new HostCore({ store, signaling, engine, input });
   pauseTimer = new PauseTimer({ onResume: () => core.setSharing(true) });
@@ -363,6 +392,7 @@ app.whenReady().then(async () => {
     return;
   }
 
+  await applyLan(); // before the first pairing link is built, so it can carry the LAN address
   tray = new Tray(nativeImage.createFromBuffer(icon.png(32)));
   tray.on('click', createUiWindow);
   tray.on('balloon-click', () => { if (updates.state.status === 'available') openLink(updates.state.download); });
@@ -418,5 +448,6 @@ app.on('before-quit', () => {
   // A timed pause is not persisted: if the app is closed during one, sharing is on again at the next start.
   if (pauseTimer?.active) { pauseTimer.clear(); store.set({ sharing: true }); }
   keepAwake?.release();
+  lan?.stop().catch(() => {});
   core?.endSession('host quit', true);
 });
