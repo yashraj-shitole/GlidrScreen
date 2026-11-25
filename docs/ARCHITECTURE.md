@@ -6,6 +6,7 @@ GlidrScreen/
     src/main.js         tray, windows, IPC, settings
     src/host.js         session state machine (HostCore): signaling <-> engine <-> input
     src/signaling.js    ntfy rendezvous client (sealed messages, auto-reconnect)
+    src/lanserver.js    ntfy-compatible HTTP server on the local network (LAN signaling, private peers only)
     src/crypto.js       pairing key -> topic + AES-GCM frames
     src/input.js        SendInput via koffi (mouse, wheel, keys, Unicode text)
     src/displays.js     monitor list (physical px), thumbnails, desktopCapturer source ids
@@ -16,9 +17,9 @@ GlidrScreen/
     renderer/ui.*       control panel (QR code, devices, stats, settings)
   android/
     screenview/         Android library, package com.yashraj.glidr.screen
-      signal/           SignalCrypto, Pairing (+store, optional m=/b= link params), WakeOnLan, NtfySignaling
+      signal/           SignalCrypto, Pairing (+store, optional m=/b=/l= link params), WakeOnLan, LanAddress, NtfySignaling
       lock/             App lock: PinLock (PBKDF2), LockPolicy (delay, wait after wrong tries), AppLockSession
-      net/              ScreenClient (session + reconnect + control API), WebRtcRuntime, Protocol
+      net/              ScreenClient (session + reconnect + control API), SignalRoutes (LAN first, then ntfy), WebRtcRuntime, Protocol
       input/            PointerMath (acceleration), VideoMapping (touch -> PC coords)
       update/           GitHub release check, off unless the host app passes an UpdateSource
       ui/               GlidrScreenApp (entry), HomeScreen, ViewerScreen, Trackpad, RemoteVideo, Sheets
@@ -39,6 +40,26 @@ hardware H.264 encode on Intel/NVIDIA/AMD through Media Foundation; Android deco
 
 **Why Electron on the PC.** Per-monitor capture plus an encoder and a full WebRTC stack in one supported runtime.
 Input injection is the only native part and uses `SendInput` through koffi (prebuilt, no compiler needed).
+
+**LAN signaling.** ntfy.sh allows about 250 anonymous messages per IP per day and may be down or blocked, while on
+the same Wi-Fi the phone can reach the PC directly. So the PC also runs a tiny ntfy-compatible HTTP server on the local
+network (`host/src/lanserver.js`) and the pairing link carries its address (`l=<ip>:<port>`). The phone tries that
+first and uses the public server only when the LAN route fails or stays silent for 4 s, so the public quota is spent
+only when it is needed. It is the same three sealed messages, just over another base URL. The server serves only the
+topics of paired phones, only to private-range peers, and every frame in it is authenticated before it is kept.
+Protocol details: `docs/PROTOCOL.md`, "LAN signaling".
+
+**Why cleartext HTTP is allowed (Android).** The LAN server speaks plain HTTP (a device on a LAN has no certificate a
+phone could verify). Android's network security config cannot allow cleartext for an IP range, only for named hosts or
+for everything, and the PC's address is not known at build time, so `android/app/src/main/res/xml/network_security_config.xml`
+sets `<base-config cleartextTrafficPermitted="true">`. This is acceptable here because (1) every signaling frame is
+AES-256-GCM sealed with the pairing key before it leaves the app, so an eavesdropper on the Wi-Fi sees only random bytes
+and cannot forge or alter a message (the DTLS fingerprints inside the offer and answer are therefore still
+authenticated); (2) the app makes no other cleartext request: the update check and the default signaling server use
+explicit `https://` URLs, and WebRTC media does not use this layer; (3) nothing else in the config is relaxed (system
+certificate authorities only). The one side effect is that a signaling server typed as `http://` in a pairing link now
+works instead of being blocked by the OS, which is equally sealed. An app that embeds `:screenview` (see below) needs the
+same attribute in its own manifest for LAN signaling to work; without it the LAN attempt fails fast and ntfy is used.
 
 **The PC offers.** It owns the video track and the data channel, so the phone is a pure receiver and codec
 negotiation is decided by the PC's preference list.

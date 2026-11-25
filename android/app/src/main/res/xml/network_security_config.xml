@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP is allowed for one reason: LAN signaling. A paired PC may offer its own tiny ntfy-compatible server at
+  http://<pc-lan-ip>:<port> (see docs/PROTOCOL.md, "LAN signaling"). Android cannot allow cleartext for an IP range,
+  only for host names or for everything, so it is allowed for everything here. That is acceptable because every
+  signaling frame is AES-256-GCM sealed with the pairing key before it leaves the app, and every other request the app
+  makes (update check, signaling server) uses an explicit https:// URL. Nothing else is relaxed: user-installed
+  certificate authorities are still not trusted, and WebRTC media does not go through this layer.
+  See docs/ARCHITECTURE.md, "Why cleartext is allowed".
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

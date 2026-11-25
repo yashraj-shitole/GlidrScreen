@@ -16,6 +16,18 @@ class Signaling extends EventEmitter {
     this.lastId = null;
     this.backoff = 1000;
     this.generation = 0;
+    this.lan = null;
+  }
+
+  /**
+   * Adds LAN signaling (see lanserver.js): frames POSTed there arrive as the same `message` events as frames from ntfy,
+   * and everything published goes to both. The LAN server serves exactly the topics of this object's slots.
+   * @param {import('./lanserver').LanServer} lan
+   */
+  attachLan(lan) {
+    this.lan = lan;
+    lan.topics = () => this.slots;
+    lan.on('message', (m) => this.emit('message', m));
   }
 
   /** @param {{id:string,key:string}[]} slots */
@@ -26,6 +38,7 @@ class Signaling extends EventEmitter {
       const d = deriveSlot(Buffer.from(s.key, 'base64url'));
       this.slots.set(d.topic, { id: s.id, encKey: d.encKey });
     }
+    this.lan?.topicsChanged();
     if (this.running) this.#restart();
   }
 
@@ -115,16 +128,26 @@ class Signaling extends EventEmitter {
     this.emit('message', { slotId: slot.id, msg, serverTime: (ev.time || 0) * 1000 });
   }
 
-  /** Seal and publish a message to the topic of the given key. [timeoutMs] caps the request (default 10 s). */
+  /**
+   * Seal and publish a message to the topic of the given key: to ntfy AND to the LAN buffer, so a phone listening on
+   * either gets it. [timeoutMs] caps the ntfy request (default 10 s). When ntfy fails (down, blocked, quota) but a phone
+   * is listening on the LAN and got the frame, that counts as published; otherwise the ntfy error is thrown as before.
+   */
   async publish(keyB64, obj, timeoutMs = 10_000) {
     const { topic, encKey } = deriveSlot(Buffer.from(keyB64, 'base64url'));
-    const res = await fetch(`${this.base}/${topic}`, {
-      method: 'POST',
-      body: seal(encKey, obj),
-      headers: { 'Content-Type': 'text/plain', Cache: 'yes' },
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) throw new Error(`publish HTTP ${res.status}`);
+    const frame = seal(encKey, obj);
+    const onLan = this.lan ? this.lan.push(topic, frame) : 0;
+    try {
+      const res = await fetch(`${this.base}/${topic}`, {
+        method: 'POST',
+        body: frame,
+        headers: { 'Content-Type': 'text/plain', Cache: 'yes' },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) throw new Error(`publish HTTP ${res.status}`);
+    } catch (e) {
+      if (onLan === 0) throw e;
+    }
   }
 }
 

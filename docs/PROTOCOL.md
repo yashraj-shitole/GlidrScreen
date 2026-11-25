@@ -27,7 +27,8 @@ code: base32(key), e.g. AAAQ-EAYE-AUDA-OCAJ-BIFQ-YDIO-B4
 The link may carry two optional Wake-on-LAN parameters, appended after `s`: `&m=<12 hex digits, upper case>` (the PC's
 network adapter MAC address) and `&b=<IPv4>` (that adapter's directed broadcast address, e.g. `192.168.1.255`). The host
 adds them only when it found a physical adapter and **both** are valid; a phone ignores a link where only one is present
-or either does not match `[0-9A-Fa-f]{12}` / dotted-quad IPv4. Links without them are exactly the old format. See
+or either does not match `[0-9A-Fa-f]{12}` / dotted-quad IPv4. Links without them are exactly the old format. A third
+optional parameter, `&l=<IPv4>:<port>`, adds the PC's LAN signaling address (see *LAN signaling* below). See
 *Wake-on-LAN* below.
 
 Unclaimed pairings expire after 15 minutes. After the first request the slot is permanent until the PC removes it
@@ -63,6 +64,73 @@ requests older than 90 s. A new `req` from the same slot replaces its previous s
 change). Different slot while a session is live: `busy`.
 
 Non-trickle ICE keeps a connection to **3 rendezvous messages** and the SDP in one frame.
+
+## LAN signaling
+
+The public ntfy.sh allows only about 250 anonymous messages per IP per day and can be down or blocked. On the same
+Wi-Fi the phone can reach the PC directly, so the PC also runs a tiny ntfy-**compatible** HTTP server on the local
+network and the phone uses its existing rendezvous code with the base `http://<pc-lan-ip>:<port>`. The messages, the
+topics and the sealing are exactly those of the rendezvous above; only the base URL differs.
+
+**Pairing link.** `&l=<IPv4>:<port>` is appended after the other parameters (after `m` / `b` when those are present):
+the primary LAN adapter's address (the one chosen for Wake-on-LAN) and the server's port, e.g.
+`&l=192.168.1.20%3A50123`. The host adds it only when LAN signaling is on and a private IPv4 address is known. The
+phone accepts it only as `a.b.c.d:port` with canonical decimal numbers, port 1..65535, and an address in 10/8,
+172.16/12, 192.168/16 or 169.254/16; anything else is ignored and the link pairs as if it had no `l`. A link without
+`l` is byte-identical to the older format. When the same PC is paired again, an `l` in the new link replaces the stored
+one; a link or typed code without it keeps the stored one.
+
+**Endpoints** (all other paths, methods and topics answer 404 / 405):
+
+```
+POST /<topic>                  body = one sealed frame (max 4096 bytes)            -> 200 {}
+GET  /<topic>/json[?since=X]   long-lived stream of newline-delimited JSON, as ntfy
+   {"id":"<id>","time":<unix s>,"event":"open","topic":"<topic>"}                  first line
+   {"id":"<id>","time":<unix s>,"event":"message","topic":"<topic>","message":"<frame>"}
+   {"id":"<id>","time":<unix s>,"event":"keepalive","topic":"<topic>"}             every 30 s
+```
+
+`since` is a message id (replays the buffered messages after it), `all`, or a duration like `30s` / `10m`; without it a
+stream carries only new messages, and an id the server does not know replays nothing. Per topic the server keeps the
+last 50 frames for 10 minutes, in memory only. The topics served are exactly those derived from the PC's current
+pairing slots (including an open, not yet claimed pairing, since the first connection happens on it); removing a phone
+removes its topic, buffer and streams.
+
+**What the host does.** A frame POSTed by a phone is opened with the slot's key first; a frame that fails
+authentication is answered 400 and is never buffered or passed on. An authentic one is buffered, sent to the open
+streams of that topic and handed to the host exactly like a message that arrived from ntfy (`message` event with
+`{slotId, msg, serverTime}`), so everything after that (the `sid` and age checks, one session at a time) is unchanged.
+An exact repeat of a buffered frame is acknowledged but not delivered a second time. Everything the host publishes
+(`offer`, `busy`, `deny`, `bye`, presence markers) goes to **both** ntfy and the LAN buffer, as the same sealed frame. If
+ntfy refuses it but a phone received it over the LAN, publishing counts as done.
+
+**What the phone does.** If the PC has a LAN address, each attempt goes LAN first:
+
+1. Subscribe to the LAN base and post `req` there (connect timeout 3 s).
+2. If no `offer` has arrived 4 s after the attempt began, or the LAN subscription or post failed earlier, also
+   subscribe to the normal base and post the same `req` there (the PC ignores the second copy: same `sid`). The LAN
+   keeps listening, so a late LAN offer still counts.
+3. The first base to deliver the `offer` is used for the rest of the attempt: the `answer` and a later `bye` go to that
+   same base and the other subscription is closed. `busy`, `deny` and `bye` from the PC end the attempt from either base.
+
+A LAN failure is never an error by itself; the public server is then used as before, and a PC without `l` skips step 1.
+The failure screen's "Got as far as" line says *Reached the PC on the local network* or *Reached the signaling server*.
+
+**Security.**
+
+* Plain HTTP, but every frame is AES-256-GCM sealed with the pairing key, so a device on the Wi-Fi sees only random
+  bytes, cannot read or alter an offer or answer (the DTLS fingerprints stay authenticated) and cannot forge a frame.
+  The usual limit applies: a captured `req` could be replayed to the PC (the same holds on ntfy); the PC ignores a `sid`
+  it has seen and exact repeats of a buffered frame.
+* The server answers 403 to any peer outside 10/8, 172.16/12, 192.168/16, 169.254/16, fe80::/10 and fc00::/7, before it
+  says anything else, so a router port forward cannot expose it. Loopback is refused too, so a tunnel running on the PC
+  cannot expose it either. Unknown topics get a plain 404: the server reveals nothing about which topics exist.
+* Caps: 4096-byte bodies, 8 KiB of headers, 16 concurrent streams (503 beyond), 15 s to deliver a request, 90 s idle
+  sockets, 30 min per stream (the phone just reconnects), slow readers are cut off. Frames are never logged.
+* It listens on all interfaces (`0.0.0.0`) only while "Set up connections directly on the local network" is on (default
+  on, setting `allowLan`); the port (`lanPort`) is picked at random in 49152-65535 on first start and kept. Windows
+  Firewall asks once whether Glidr Screen may accept connections on private networks; declining just leaves ntfy.
+* Android: the app allows cleartext HTTP in its network security config for this (see ARCHITECTURE.md).
 
 ## Presence
 

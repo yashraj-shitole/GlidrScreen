@@ -22,6 +22,8 @@ const DEFAULTS = {
   allowActions: false, // quick actions from the phone (lock, sleep, restart, launchers): off until the PC owner turns it on; see actions.js
   actionsEnabled: null, // ids switched on individually; null = defaults (lock, sleep only). Restart, shutdown and launchers need an explicit yes
   launchers: [], // {id, label, path, args[]}: defined on this PC only, max 12; the phone never sees paths or arguments
+  allowLan: true, // LAN signaling: a phone on the same Wi-Fi sets up the connection directly with this PC (see lanserver.js)
+  lanPort: 0, // port of that server; 0 = pick a random free one in 49152-65535 at the first start, then keep it
   quality: 'auto', // auto | low | balanced | high
   codec: 'auto', // auto | h264 | vp8
   stun: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun.cloudflare.com:3478'],
@@ -46,6 +48,8 @@ class Store {
     this.data = { ...DEFAULTS, ...(raw || {}), slots: Array.isArray(raw?.slots) ? raw.slots.map((s) => ({ ...s })) : [] };
     this.data.launchers = sanitizeLaunchers(this.data.launchers); // a hand-edited file must not widen what can run
     if (this.data.allowActions !== true) this.data.allowActions = false;
+    if (typeof this.data.allowLan !== 'boolean') this.data.allowLan = true;
+    if (!Number.isInteger(this.data.lanPort) || this.data.lanPort < 1024 || this.data.lanPort > 65535) this.data.lanPort = 0;
     if (this.data.actionsEnabled !== null && !Array.isArray(this.data.actionsEnabled)) this.data.actionsEnabled = null;
     const migrate = this.#openKeys();
     this.pruneSlots();
