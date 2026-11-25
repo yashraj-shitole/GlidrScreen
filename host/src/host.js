@@ -9,6 +9,7 @@ const { FileReceiver, cleanStaleParts } = require('./files');
 const Windows = require('./windows');
 const Actions = require('./actions');
 const path = require('path');
+const { PhoneMedia } = require('./phonemedia'); // <phonemedia> phone camera and microphone, see phonemedia.js
 
 const MAX_TIMER_MS = 2 ** 31 - 1; // setTimeout fires at once above this
 const CONNECT_TIMEOUT_MS = 30_000;
@@ -66,6 +67,17 @@ class HostCore extends EventEmitter {
     this.winLatest = null; // newest list computed: the ids the phone may ask for
     this.winDetect = new Windows.ChangeDetector();
 
+    // <phonemedia> policy for the phone's camera / microphone; the window shows through the 'window' event (main.js)
+    this.phoneMedia = new PhoneMedia({
+      allowed: () => this.store.get('allowPhoneMedia') === true,
+      canControl: (s) => this.#canControl(s),
+      send: (obj) => this.#send(obj),
+      engineSend: (cmd) => this.engine.send(cmd),
+      getSink: () => String(this.store.get('phoneMediaSink') || ''),
+      setSink: (id) => this.store.set({ phoneMediaSink: id }),
+      log: (m) => this.emit('log', m),
+    });
+    // </phonemedia>
     this.sig.on('message', (m) => this.#onSignal(m));
     this.sig.on('status', (s) => { this.sigStatus = s; this.#changed(); });
     engine.on('evt', (e) => this.#onEngine(e));
@@ -246,6 +258,7 @@ class HostCore extends EventEmitter {
       case 'log':
         this.emit('log', 'engine: ' + e.message);
         break;
+      case 'pm': this.phoneMedia.onEngine(s, e); break; // <phonemedia> answer / error / tracks / stop / sink from the engine page
       default: break;
     }
   }
@@ -381,7 +394,7 @@ class HostCore extends EventEmitter {
     let m;
     try { m = JSON.parse(data); } catch { return; }
     const control = this.#canControl(s);
-    if (process.env.GLIDR_DEBUG && m.t !== 'ping') this.emit('log', 'ctl ' + data);
+    if (process.env.GLIDR_DEBUG && m.t !== 'ping' && m.t !== 'renegotiate') this.emit('log', 'ctl ' + data); // <phonemedia> no SDP in logs
     switch (m.t) {
       case 'ping': this.#send({ t: 'pong', n: m.n, ts: m.ts }); break;
       case 'monitors': this.#send({ t: 'monitors', monitors: displays.list(), active: s.monitorId }); break;
@@ -398,6 +411,7 @@ class HostCore extends EventEmitter {
       case 'curs': this.#cursorStream(m.on === true); break;
       case 'file-offer': if (s.live) this.#fileOffer(s, m); break; // never log the name
       case 'action': if (s.live) await this.#runAction(s, m); break; // the phone sends an id only; see actions.js
+      case 'renegotiate': this.phoneMedia.onRenegotiate(s, m); break; // <phonemedia> never log the SDP
       case 'mv': if (control) this.input.moveBy(+m.dx || 0, +m.dy || 0); break;
       case 'abs': if (control) this.input.moveNorm(+m.x || 0, +m.y || 0); break;
       case 'btn': if (control) this.input.button(m.b, m.a); break;
@@ -553,7 +567,16 @@ class HostCore extends EventEmitter {
     if (!on) { this.input.reset(); s.files?.abort('control switched off', true); } // release anything the phone was holding
     this.#send({ t: 'control', on });
     this.#send({ t: 'actions', list: this.#actionList(s) }); // quick actions need control too
+    this.phoneMedia.recheck(s); // <phonemedia>
   }
+
+  // <phonemedia>
+  /** "Allow the phone to send its camera and microphone" was switched on the PC: when it went off, a running camera is stopped. */
+  phoneMediaChanged() {
+    const s = this.sess;
+    if (s) this.phoneMedia.recheck(s);
+  }
+  // </phonemedia>
 
   #thumbs(on) {
     clearInterval(this.thumbTimer);
@@ -592,6 +615,7 @@ class HostCore extends EventEmitter {
     s.clip?.stop();
     s.cursor?.stop();
     s.files?.abort('session ended', false); // partial file deleted, nobody left to tell
+    this.phoneMedia.end(s); // <phonemedia> hides the camera window
     this.stats = null;
     this.input.reset();
     this.engine.send({ t: 'stop', sid: s.sid });

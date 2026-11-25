@@ -475,6 +475,68 @@ switched off. Launcher paths and arguments are never sent to the phone (only `id
 
 The host logs only the action id and the outcome (at debug level), never a path or an argument.
 
+## Phone camera and microphone
+
+The phone can send its **camera** and / or **microphone** to the PC over the connection that is already running. The PC
+shows the camera in a window and plays the microphone through an audio output the PC owner chooses. It is **off by
+default** and needs the PC owner's say-so. Older hosts ignore `renegotiate` (the phone then gets no answer and gives up
+after 20 s); older phones never send it.
+
+**This is not a webcam or a microphone device.** Windows cannot expose a network camera or microphone without a
+virtual-device driver, and this project ships none. The PC side is a window and an audio output (see the README for
+using the window as a webcam through OBS Virtual Camera, and a virtual audio cable as the microphone).
+
+The rendezvous is not involved (it only carries `req`, `offer` and `answer`). The phone is the **offerer** here: it adds
+`sendonly` transceivers for the camera video and / or the microphone audio to the existing peer connection, creates a new
+offer, waits for ICE gathering to finish (new sections ride on the existing BUNDLE transport, so this is normally
+instant) and sends the whole SDP as text on `ctl`. Stopping removes the transceivers and renegotiates the same way.
+
+| message | direction | meaning |
+|---------|-----------|---------|
+| `{"t":"renegotiate","sdp":"<offer>"}` | phone to PC | a new offer for the running connection |
+| `{"t":"renegotiate-answer","sdp":"<answer>"}` | PC to phone | the answer; apply it with `setRemoteDescription` |
+| `{"t":"renegotiate-error","reason":"disabled\|busy\|bad-sdp\|failed"}` | PC to phone | refused, nothing changed on the PC. The phone rolls its offer back and switches off what it tried to add |
+| `{"t":"media-stop","reason":"pc\|disabled"}` | PC to phone | the PC owner pressed **Stop** (`pc`) or switched the feature off, or the phone became view only (`disabled`). The phone stops capture at once and sends a `renegotiate` that removes its tracks |
+
+Rules the host enforces, in this order, on every `renegotiate`:
+
+1. **One at a time.** While an answer is pending, another `renegotiate` gets `busy`. The engine has 15 s to answer, then
+   the phone gets `failed` and may try again.
+2. **The SDP is validated** before anything touches the peer connection, else `bad-sdp`: a string of at most **60 KiB**
+   (61440 characters; the data channel itself allows 256 KB), printable ASCII plus CR / LF, starting with `v=0`, at most
+   8 m-sections, of kind `video`, `audio` and **at most one `application`**, and at most **one video and one audio
+   section in which the phone sends** (port not 0, direction `sendonly` or `sendrecv`): the camera and the microphone,
+   nothing more. A real re-offer necessarily repeats the sections that already exist (the PC's screen video, the optional
+   PC audio, and the data channels as one SCTP section), so those pass; a second `m=application`, `text`, `message` or any
+   other kind does not. The SDP is never logged.
+3. **Policy**, only for an offer in which the phone sends something: the setting `allowPhoneMedia` ("Allow the phone to
+   send its camera and microphone", default **off**), the PC-wide "Allow remote control" and a phone that is not view only
+   must all hold, else `disabled`. An offer in which the phone sends nothing (it is stopping) is always answered, so a
+   phone is never left half-way through a negotiation.
+4. The engine applies it (`setRemoteDescription`, `createAnswer`, `setLocalDescription`, gathering) and the answer is sent
+   as `renegotiate-answer`. An answer over 60 KiB or an engine error becomes `failed` (or `bad-sdp` when the offer could not
+   be parsed by the engine).
+
+The check is repeated while the camera runs: switching the setting or "Allow remote control" off, or making the phone
+view only, immediately stops showing and playing what arrives and sends `media-stop`. The PC owner can also press **Stop**
+in the camera window or close it. A phone that keeps sending after `media-stop` is not shown or played (the PC only
+attaches tracks to the window when a renegotiation it accepted has just finished); it can only appear again through a new
+`renegotiate`, which is refused with `disabled` while the feature is off.
+
+On the PC, incoming tracks that the PC did not create are shown in the engine window, which main shows (titled "Glidr
+Screen: phone camera") only while a track arrives: the video in a `<video>` (contain, black background, mirror toggle),
+the audio in an `<audio>` element sent to the chosen output with `setSinkId` (remembered as `phoneMediaSink`), with a
+mute button and a **Stop** button, under an unmissable "Phone camera" label. The engine renderer owns the peer
+connection and a `MediaStream` cannot cross windows, so there is no second window. Nothing on the PC is captured or
+recorded; the window needs no capture permission.
+
+On the phone, the camera is Camera2 at 1280x720 and 24 fps (front or back, switchable without renegotiating), the
+microphone has echo cancellation, noise suppression and automatic gain control requested. Both are added with
+`addTransceiver(track, sendonly)`, never `addTrack` (which could reuse the transceiver that receives the PC's screen).
+The Android permissions `CAMERA` and `RECORD_AUDIO` are requested only when the person switches the camera or microphone
+on, after saying why. A "Camera on" / "Mic on" tag is shown for as long as capture runs, and everything stops when the
+session ends or the app leaves the screen.
+
 ## Security model
 
 * Possession of the 128-bit pairing key is the only credential. It is created on the PC, shown on the PC screen, and

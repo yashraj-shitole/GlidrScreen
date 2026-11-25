@@ -99,6 +99,7 @@ fun BoxScope.ViewerVideoOverlays(client: ScreenClient, zoom: VideoViewState, ext
             }
         }
     }
+    PhoneMediaOverlay(client) // phone camera and microphone: chip, "Camera on" tag, sheet (PhoneMediaSheet.kt)
 }
 
 /** Hook for the root of the viewer, next to the other sheets: the clipboard sheet and PC-to-phone clipboard copy. */

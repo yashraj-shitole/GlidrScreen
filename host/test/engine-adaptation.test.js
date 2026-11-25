@@ -56,6 +56,7 @@ const sandbox = {
   clearInterval: () => {},
   setTimeout, clearTimeout,
   document: { getElementById: () => ({}) },
+  PhoneCam: { attach() {}, detach() {}, async handle() {} }, // the phone camera panel (phonecam.js) has its own test
 };
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);

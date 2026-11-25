@@ -3,6 +3,14 @@
 
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
 
+    <!-- Camera and microphone to the PC: asked for only when the person switches them on in the viewer, never at app start.
+         The phone does not need either to install or to view the PC. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
