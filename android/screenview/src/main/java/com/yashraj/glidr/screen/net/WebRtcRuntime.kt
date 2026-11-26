@@ -4,7 +4,9 @@ import android.content.Context
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
 import org.webrtc.EglBase
+import android.media.AudioAttributes
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.audio.JavaAudioDeviceModule
 
 /** Process-wide WebRTC factory and EGL context. Initialised lazily, once. */
 object WebRtcRuntime {
@@ -36,7 +38,19 @@ object WebRtcRuntime {
             PeerConnectionFactory.InitializationOptions.builder(context.applicationContext).createInitializationOptions(),
         )
         val newEgl = EglBase.create()
+        // The PC's audio is media (music, video, system sound), not a phone call. The default audio device module plays
+        // through the voice-call stream, which Android routes to the earpiece; media usage uses the loudspeaker (or
+        // headphones) and the normal media volume keys.
+        val audioDevice = JavaAudioDeviceModule.builder(context.applicationContext)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build(),
+            )
+            .createAudioDeviceModule()
         val newFactory = PeerConnectionFactory.builder()
+            .setAudioDeviceModule(audioDevice)
             .setVideoDecoderFactory(DefaultVideoDecoderFactory(newEgl.eglBaseContext))
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(newEgl.eglBaseContext, true, true))
             .createPeerConnectionFactory()
