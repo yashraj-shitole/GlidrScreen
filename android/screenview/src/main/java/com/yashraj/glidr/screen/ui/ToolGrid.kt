@@ -100,3 +100,13 @@ fun MoreIcon(tint: Color, size: Dp = 24.dp) {
         for (x in listOf(5f, 12f, 19f)) drawCircle(tint, w * 0.085f, Offset(x * w / 24f, w / 2f))
     }
 }
+
+/** A record symbol: a ring with a dot in it. */
+@Composable
+fun RecordIcon(tint: Color, size: Dp = 24.dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        drawCircle(tint, w * 0.40f, Offset(w / 2f, w / 2f), style = androidx.compose.ui.graphics.drawscope.Stroke(w * 0.085f))
+        drawCircle(tint, w * 0.20f, Offset(w / 2f, w / 2f))
+    }
+}

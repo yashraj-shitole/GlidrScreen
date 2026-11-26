@@ -218,6 +218,7 @@ async function buildState() {
       allowActions: store.get('allowActions') === true,
       allowLan: store.get('allowLan') !== false,
       recordSessions: store.get('recordSessions') === true, // session recording
+      allowPhoneRecording: store.get('allowPhoneRecording') === true,
     },
     // The PC's own list (paths and arguments are shown here only; the phone is only ever sent id, label and danger).
     actions: {
@@ -300,6 +301,7 @@ function registerIpc() {
         const patch = {};
         for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio', 'allowLan', 'recordSessions']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (typeof arg.allowPhoneMedia === 'boolean') patch.allowPhoneMedia = arg.allowPhoneMedia; // <phonemedia>
+        if (typeof arg.allowPhoneRecording === 'boolean') patch.allowPhoneRecording = arg.allowPhoneRecording;
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8', 'vp9', 'av1'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -314,6 +316,7 @@ function registerIpc() {
         if ('allowActions' in patch) core.actionsChanged();
         if ('allowFiles' in patch) core.filesChanged();
         if ('allowPhoneMedia' in patch) core.phoneMediaChanged(); // <phonemedia>
+        if ('allowPhoneRecording' in patch) core.phoneRecordingChanged();
         if ('keepAwake' in patch) keepAwake.sync();
         if ('recordSessions' in patch) core.recordingChanged(); // session recording: starts / stops at once in a live session
         break;

@@ -477,16 +477,24 @@ The host logs only the action id and the outcome (at debug level), never a path 
 
 ## Recording
 
-The PC owner can save what the phone is viewing to a video file on the PC. It is **off by default** (setting
-`recordSessions`, "Record sessions on this PC"), and the phone is always told while it happens. There is no way for the
-phone to start, stop or hide it.
+The PC owner can save what the phone is viewing to a video file on the PC. Nothing is recorded by default. Recording
+starts only when the PC owner switches on "Record every session on this PC" (setting `recordSessions`, off by default) or
+when the phone taps **Record** and the PC owner allows that ("Let the phone start and stop recording", setting
+`allowPhoneRecording`, on by default). The phone is always told while it happens, and there is no way to hide it.
 
 PC to phone (on `ctl`):
 
 | message | meaning |
 |---------|---------|
 | `hello.recording` | `true` when the PC is recording this session from the moment the channel opens, else `false`. Older hosts omit it (treat as `false`) |
+| `hello.recctl` | `true` when the PC owner lets this phone start and stop recording (the phone then shows a Record button), else `false`. Older hosts omit it (treat as `false`) |
+| `{"t":"recctl","on":bool}` | the PC owner switched that permission during the session. Anything but `"on":true` means "no Record button"; a recording the phone started stops when it is switched off |
 | `{"t":"recording","on":bool}` | a recording started or stopped during the session (the PC owner switched the setting, the 2 GB limit was reached, or the PC could not keep recording). Anything but `"on":true` means "not recording" |
+
+Phone to PC (on `ctl`): `{"t":"record","on":bool}`, the Record button. While `allowPhoneRecording` is on the PC starts or
+stops recording this session and answers with `recording` (announced before any video is written, like any other
+recording); while it is off the PC starts nothing and answers `recording` with what is really happening. Asking to start
+twice does not make a second file.
 
 The phone shows a red dot and "PC is recording" over the picture for as long as it is `true`, and resets it when the
 session ends. A host that does not record never sends `recording`; a phone that does not know it ignores it (and
@@ -494,8 +502,9 @@ then cannot show the tag, so upgrade the phone app before switching recording on
 
 Privacy rules the host follows:
 
-* Off unless the PC owner switches it on; the setting is read from the PC's own settings file and only a real `true`
-  counts. Switching it on or off applies at once, also in a live session.
+* Off unless the PC owner switches "Record every session" on, or the phone asks while that is allowed; the settings are
+  read from the PC's own settings file and only a real `true` counts for `recordSessions`. Switching either on or off
+  applies at once, also in a live session.
 * The disclosure comes first: `hello.recording` is `true` in the first message of the session, and `recording` is sent
   when the PC starts recording, before any video is written.
 * Files are only ever created in `<Videos>\Glidr` (`app.getPath('videos')`), named `Glidr-<phone name>-<YYYYMMDD-HHMMSS>.webm`

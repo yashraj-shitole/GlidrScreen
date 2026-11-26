@@ -75,6 +75,8 @@ fun ViewerScreen(
     val audio by client.audioActive.collectAsState()
     val muted by client.audioMuted.collectAsState()
     val quickActions by client.quickActions.collectAsState()
+    val recording by client.recording.collectAsState()
+    val recordControl by client.recordControl.collectAsState()
     var overlay by remember { mutableStateOf(Overlay.None) }
     val zoom = remember { VideoViewState() }
     val extras = rememberViewerExtras() // HOOK 1/3: locked banner, clipboard, follow pointer, mute (see Banners.kt)
@@ -171,7 +173,7 @@ fun ViewerScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                 ToolBarButton("Keyboard", active = false, modifier = Modifier.weight(1f), onClick = { overlay = Overlay.Keyboard }) { Icon(Ico.Keyboard, it) }
                 // lit while something inside it is on (direct touch, camera or microphone, muted PC audio)
-                ToolBarButton("More", active = prefs.directTouch || media.on || muted, modifier = Modifier.weight(1f), onClick = { overlay = Overlay.More }) { MoreIcon(it) }
+                ToolBarButton("More", active = prefs.directTouch || media.on || muted || recording, modifier = Modifier.weight(1f), onClick = { overlay = Overlay.More }) { MoreIcon(it) }
             }
         }
     }
@@ -231,6 +233,8 @@ fun ViewerScreen(
                         ExtraIcon(if (muted) ExtraIco.SpeakerOff else ExtraIco.Speaker, it)
                     })
                     if (quickActions.isNotEmpty()) add(ToolTileSpec("PC actions", onClick = go { extras.actionsOpen = true }) { PowerIcon(it) })
+                    // Only while the PC owner allows it. A switch like Mute: stays open, lights up while the PC records.
+                    if (recordControl) add(ToolTileSpec(if (recording) "Stop recording" else "Record PC", active = recording, onClick = { client.setRecording(!recording) }) { RecordIcon(it) })
                     if (landscape) add(ToolTileSpec("Hide controls", onClick = go { onPrefs { p -> p.copy(panelCollapsed = true) } }) { Icon(Ico.Pad, it) })
                 }
                 ToolGrid(tiles, ToolGridLayout.PORTRAIT_PER_ROW)

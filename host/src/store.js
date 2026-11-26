@@ -26,6 +26,7 @@ const DEFAULTS = {
   allowLan: true, // LAN signaling: a phone on the same Wi-Fi sets up the connection directly with this PC (see lanserver.js)
   lanPort: 0, // port of that server; 0 = pick a random free one in 49152-65535 at the first start, then keep it
   recordSessions: false, // save what the phone views to Videos\Glidr (off by default; the phone is told while it runs; see recording.js)
+  allowPhoneRecording: true, // the phone may start and stop a recording of its own session (never records unless the phone taps Record; see host.js #phoneRecord)
   allowPhoneMedia: true, // the phone may send its camera and microphone (on by default; the PC owner can switch it off); shown in a window on this PC (see phonemedia.js). Also needs allowControl and a phone that is not view only
   phoneMediaSink: '', // audio output chosen in that window for the phone's microphone; '' = the system default
   quality: 'auto', // auto | low | balanced | high
@@ -57,6 +58,7 @@ class Store {
     if (this.data.recordSessions !== true) this.data.recordSessions = false; // a hand-edited file cannot switch it on by accident
     if (!Number.isInteger(this.data.lanPort) || this.data.lanPort < 1024 || this.data.lanPort > 65535) this.data.lanPort = 0;
     if (this.data.actionsEnabled !== null && !Array.isArray(this.data.actionsEnabled)) this.data.actionsEnabled = null;
+    if (typeof this.data.allowPhoneRecording !== 'boolean') this.data.allowPhoneRecording = true; // a damaged value falls back to the default (on)
     if (typeof this.data.allowPhoneMedia !== 'boolean') this.data.allowPhoneMedia = true; // phone camera: a damaged value falls back to the default (on)
     if (typeof this.data.phoneMediaSink !== 'string' || this.data.phoneMediaSink.length > 300) this.data.phoneMediaSink = '';
     const migrate = this.#openKeys();

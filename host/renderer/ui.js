@@ -5,6 +5,7 @@ let editing = false;
 const TOGGLES = ['allowControl', 'allowActions', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart', 'allowLan', 'recordSessions'];
 
 TOGGLES.push('allowPhoneMedia'); // phone camera and microphone (src/phonemedia.js)
+TOGGLES.push('allowPhoneRecording'); // the phone's Record button (src/host.js #phoneRecord)
 
 const STATUS = {
   waiting: ['waiting', 'Ready'], connecting: ['connecting', 'Connecting'],

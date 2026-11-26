@@ -174,6 +174,9 @@ object Msg {
     /** Ask the PC to push its clipboard text changes ([HostEvent.Clip]) while [on]. */
     fun clipsync(on: Boolean) = JSONObject().put("t", "clipsync").put("on", on)
 
+    /** Ask the PC to start or stop recording this session (the PC only does it while its owner allows the phone to). */
+    fun record(on: Boolean) = JSONObject().put("t", "record").put("on", on)
+
     /** Start or stop the PC cursor position stream ([HostEvent.Cursor], about 30 Hz). */
     fun curs(on: Boolean) = JSONObject().put("t", "curs").put("on", on)
 
@@ -227,7 +230,7 @@ object ClipLimits {
 }
 
 /** Fields the host adds to `hello`; each is null when an older host did not send it. */
-data class HelloExtras(val locked: Boolean?, val audio: Boolean?, val fps: Int?, val recording: Boolean? = null)
+data class HelloExtras(val locked: Boolean?, val audio: Boolean?, val fps: Int?, val recording: Boolean? = null, val recordControl: Boolean? = null)
 
 /** Host-to-phone messages added in protocol v1.1 (clipboard, cursor, lock state). Unknown or malformed ones give null. */
 sealed interface HostEvent {
@@ -236,6 +239,8 @@ sealed interface HostEvent {
     data class Locked(val on: Boolean) : HostEvent
     /** The PC started / stopped recording this session (docs/PROTOCOL.md, "Recording"). */
     data class Recording(val on: Boolean) : HostEvent
+    /** The PC owner allowed or stopped allowing this phone to start and stop recording (`hello.recctl`, `recctl`). */
+    data class RecordControl(val on: Boolean) : HostEvent
 }
 
 object HostEvents {
@@ -251,6 +256,7 @@ object HostEvents {
         }
         "locked" -> HostEvent.Locked(m.optBoolean("on", false))
         "recording" -> HostEvent.Recording(m.optBoolean("on", false)) // anything but a true boolean means "not recording"
+        "recctl" -> HostEvent.RecordControl(m.optBoolean("on", false)) // anything but a true boolean means "not allowed"
         else -> null
     }
 
@@ -259,6 +265,7 @@ object HostEvents {
         audio = if (m.has("audio")) m.optBoolean("audio") else null,
         fps = m.optInt("fps", 0).takeIf { it > 0 },
         recording = if (m.has("recording")) m.optBoolean("recording") else null,
+        recordControl = if (m.has("recctl")) m.optBoolean("recctl") else null,
     )
 }
 

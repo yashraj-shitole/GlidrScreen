@@ -134,6 +134,10 @@ class ScreenClient(
     /** True while the PC is locked (the lock screen cannot be captured or controlled). Reset when the session ends. */
     val hostLocked: StateFlow<Boolean> = _locked.asStateFlow()
 
+    private val _recordControl = MutableStateFlow(false)
+    /** True while the PC owner lets this phone start and stop recording (`hello.recctl`, `recctl`): the Record button shows. */
+    val recordControl: StateFlow<Boolean> = _recordControl.asStateFlow()
+
     private val _recording = MutableStateFlow(false)
     /** True while the PC records this session (`hello.recording`, `recording`). Reset when the session ends. */
     val recording: StateFlow<Boolean> = _recording.asStateFlow()
@@ -530,6 +534,7 @@ class ScreenClient(
         _activeWindow.value = null
         _locked.value = false
         _recording.value = false
+        _recordControl.value = false
         _quickActions.value = emptyList()
         shutdownJob?.cancel()
         _shutdownPending.value = false
@@ -726,6 +731,7 @@ class ScreenClient(
                 val extras = HostEvents.helloExtras(m)
                 extras.locked?.let { _locked.value = it }
                 _recording.value = extras.recording == true // missing (older host) = not recording
+                _recordControl.value = extras.recordControl == true // missing (older host) = no Record button
                 extras.fps?.let { _fps.value = it }
                 if (extras.audio == false) _audioActive.value = false
                 _quickActions.value = QuickAction.parseAll(m.optJSONArray("actions")) // missing (older host) = none
@@ -786,6 +792,7 @@ class ScreenClient(
             else -> when (val ev = HostEvents.parse(m)) {
                 is HostEvent.Locked -> _locked.value = ev.on
                 is HostEvent.Recording -> _recording.value = ev.on
+                is HostEvent.RecordControl -> _recordControl.value = ev.on
                 is HostEvent.Cursor -> if (wantCursor) _cursor.value = ev.x to ev.y
                 is HostEvent.Clip -> if (_clipSync.value) { _lastClip.value = ev.text; _incomingClip.tryEmit(ev.text) }
                 null -> {}
@@ -906,6 +913,9 @@ class ScreenClient(
     }
 
     /** Ask the PC to push its clipboard text changes while [on]. */
+    /** The Record button: asks the PC to start or stop recording this session. The PC answers with `recording`, which drives [recording]. */
+    fun setRecording(on: Boolean) { if (_recordControl.value) send(Msg.record(on)) }
+
     fun setClipboardSync(on: Boolean) {
         _clipSync.value = on
         if (!on) _lastClip.value = null

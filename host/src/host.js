@@ -288,6 +288,7 @@ class HostCore extends EventEmitter {
       monitors: displays.list(), active: s.monitorId,
       locked: this.locked, audio: s.audio, actions: this.#actionList(s),
       recording: s.rec?.active === true, // session recording: the phone is always told
+      recctl: this.store.get('allowPhoneRecording') === true, // the phone may offer a Record button (see #phoneRecord)
     });
   }
 
@@ -422,6 +423,7 @@ class HostCore extends EventEmitter {
       case 'quality': this.#setQuality(s, m); break;
       case 'clip': if (control && s.live) this.#clipSync(s).fromPhone(m.s); break; // never log the text
       case 'clipsync': if (s.live) this.#clipSync(s).setOn(m.on === true); break;
+      case 'record': if (s.live) this.#phoneRecord(s, m.on === true); break; // the phone's Record button
       case 'curs': this.#cursorStream(m.on === true); break;
       case 'file-offer': if (s.live) this.#fileOffer(s, m); break; // never log the name
       case 'action': if (s.live) await this.#runAction(s, m); break; // the phone sends an id only; see actions.js
@@ -666,6 +668,36 @@ class HostCore extends EventEmitter {
     this.recPending.add(p);
     p.then(() => this.recPending.delete(p));
     this.#changed();
+  }
+
+  /**
+   * The phone's Record button. Only while "Let the phone start and stop recording" is on; otherwise the phone is simply
+   * told what is really happening. Starting is announced first (`recording`), exactly like a recording the PC owner
+   * started, and the files go to the same folder. A recording the phone started is marked so that switching the
+   * permission off stops it (see [phoneRecordingChanged]); asking to stop always stops, because the person holding the
+   * phone is the one watching.
+   */
+  #phoneRecord(s, on) {
+    if (this.store.get('allowPhoneRecording') !== true) {
+      this.#send({ t: 'recording', on: s.rec?.active === true });
+      return;
+    }
+    if (on) {
+      if (this.#recordingStart(s, true)) s.recByPhone = true;
+      else this.#send({ t: 'recording', on: false });
+    } else {
+      s.recByPhone = false;
+      this.#recordingStop(s, true);
+    }
+  }
+
+  /** "Let the phone start and stop recording" was switched: the live phone is told, and a recording it started stops when it is off. */
+  phoneRecordingChanged() {
+    const s = this.sess;
+    if (!s?.live) return;
+    const allowed = this.store.get('allowPhoneRecording') === true;
+    this.#send({ t: 'recctl', on: allowed });
+    if (!allowed && s.recByPhone && this.store.get('recordSessions') !== true) { s.recByPhone = false; this.#recordingStop(s, true); }
   }
 
   /** "Record sessions on this PC" was switched: it takes effect at once in a live session, and the phone is told. */

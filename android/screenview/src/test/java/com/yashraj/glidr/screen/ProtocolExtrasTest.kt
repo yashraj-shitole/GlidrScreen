@@ -154,4 +154,18 @@ class ProtocolExtrasTest {
         assertTrue(streamCaption(15, true).contains("data saver"))
         assertFalse(streamCaption(24, false).contains("Always"))
     }
+
+    @Test fun recordButtonMessageAndPermission() {
+        // the phone asks, the PC decides
+        assertEquals(JSONObject("""{"t":"record","on":true}""").toString(), Msg.record(true).toString().let { JSONObject(it).toString() })
+        assertTrue(Msg.record(false).getString("t") == "record" && !Msg.record(false).getBoolean("on"))
+        // the PC owner's permission arrives in the hello and later as `recctl`; anything but a real true means "no button"
+        assertEquals(HostEvent.RecordControl(true), HostEvents.parse(JSONObject("""{"t":"recctl","on":true}""")))
+        assertEquals(HostEvent.RecordControl(false), HostEvents.parse(JSONObject("""{"t":"recctl","on":false}""")))
+        assertEquals(HostEvent.RecordControl(false), HostEvents.parse(JSONObject("""{"t":"recctl"}""")))
+        assertEquals(HostEvent.RecordControl(false), HostEvents.parse(JSONObject("""{"t":"recctl","on":"yes"}""")))
+        assertEquals(true, HostEvents.helloExtras(JSONObject("""{"t":"hello","recctl":true}""")).recordControl)
+        assertEquals(false, HostEvents.helloExtras(JSONObject("""{"t":"hello","recctl":false}""")).recordControl)
+        assertNull(HostEvents.helloExtras(JSONObject("""{"t":"hello"}""")).recordControl) // an older PC offers no button
+    }
 }

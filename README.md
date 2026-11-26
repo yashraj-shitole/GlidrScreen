@@ -113,7 +113,7 @@ with the project's own release key (not Google Play's) and the PC app and instal
 * Per phone: a *View only* switch, an access limit (always, 1 hour, 1 day, 7 days), and *Pair a guest* for a one-hour
   view-only link.
 * Optional: share the PC's audio, end the session when the PC locks, two-way clipboard (the phone asks for it).
-* Optional: *Record sessions on this PC* saves what the phone views to `Videos\Glidr` (off by default; the phone shows "PC is recording" while it runs).
+* Recording is off by default. Two ways to start it, both in the PC app: *Record every session on this PC* saves each connection to `Videos\Glidr` from the moment it starts, and *Let the phone start and stop recording* (on by default) adds a **Record PC** button to the phone's **More** popup. Nothing records until one of them is used, and the phone shows "PC is recording" while it runs.
 * *Allow the phone to send its camera and microphone* (on by default, so there is no approval step; switch it off to block it. It also needs remote control on and a phone that
   is not view only). The picture opens in a window titled "Glidr Screen: phone camera" (with a mirror switch and **Stop**), the
   sound plays through the audio output you pick in that window. See the next section for what this is and is not.

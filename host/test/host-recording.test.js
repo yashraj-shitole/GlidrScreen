@@ -250,5 +250,77 @@ function setup({ settings = {}, fs = fakeFs(), deps = {} } = {}) {
     t.core.endSession('x', false);
     await t.core.recordingsDone();
   }
+  // ---- the phone's Record button (allowPhoneRecording): off by default for the PC owner's switch, nothing records until asked
+  {
+    const os = require('os');
+    const { Store } = require('../src/store');
+    const dir = require('fs').mkdtempSync(path.join(os.tmpdir(), 'glidr-rec-store2-'));
+    assert.strictEqual(new Store(dir, { safeStorage: null }).get('allowPhoneRecording'), true, 'the phone may offer Record by default');
+    require('fs').writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ allowPhoneRecording: 'no', slots: [] }));
+    assert.strictEqual(new Store(dir, { safeStorage: null }).get('allowPhoneRecording'), true, 'a damaged value falls back to the default');
+    assert.strictEqual(new Store(dir, { safeStorage: null }).get('recordSessions'), false, 'and never switches recording itself on');
+  }
+  {
+    const t = setup({ settings: { allowPhoneRecording: true } });
+    const sid = await t.connect();
+    const ctl = (m) => t.engine.emit('evt', { t: 'ctl', sid, data: JSON.stringify(m) });
+    assert.strictEqual(t.hello().recctl, true, 'the hello offers the Record button');
+    assert.strictEqual(t.hello().recording, false, 'but nothing records by itself');
+    assert.strictEqual(t.fs.files.size, 0);
+    // the phone taps Record: announced first, the engine starts, a file is created
+    ctl({ t: 'record', on: true });
+    assert.deepStrictEqual(t.recMsgs().map((m) => m.on), [true]);
+    assert.deepStrictEqual(t.cmds('rec').map((c) => c.on), [true]);
+    assert.strictEqual(t.fs.files.size, 1);
+    assert.strictEqual(t.core.snapshot().recording, true);
+    t.chunk(sid, 4000);
+    ctl({ t: 'record', on: true }); // pressing it again does not start a second file
+    assert.strictEqual(t.fs.files.size, 1);
+    // the phone taps Record again to stop: announced, the engine stops, the file is kept
+    ctl({ t: 'record', on: false });
+    assert.deepStrictEqual(t.recMsgs().map((m) => m.on), [true, false]);
+    assert.strictEqual(t.core.snapshot().recording, false);
+    await t.core.recordingsDone();
+    assert.deepStrictEqual(t.saved, [{ from: 'My Phone' }]);
+    t.core.endSession('x', false);
+  }
+  {
+    // the PC owner switched the phone's Record button off: the phone is told the truth and nothing starts
+    const t = setup({ settings: { allowPhoneRecording: false } });
+    const sid = await t.connect();
+    const ctl = (m) => t.engine.emit('evt', { t: 'ctl', sid, data: JSON.stringify(m) });
+    assert.strictEqual(t.hello().recctl, false);
+    ctl({ t: 'record', on: true });
+    assert.strictEqual(t.fs.files.size, 0);
+    assert.strictEqual(t.core.snapshot().recording, false);
+    assert.deepStrictEqual(t.recMsgs().map((m) => m.on), [false], 'the phone is told it is not recording');
+    t.core.endSession('x', false);
+  }
+  {
+    // switching the permission off in a live session tells the phone and stops a recording the phone started
+    const t = setup({ settings: { allowPhoneRecording: true } });
+    const sid = await t.connect();
+    t.engine.emit('evt', { t: 'ctl', sid, data: JSON.stringify({ t: 'record', on: true }) });
+    t.chunk(sid, 3000);
+    assert.strictEqual(t.core.snapshot().recording, true);
+    t.data.allowPhoneRecording = false;
+    t.core.phoneRecordingChanged();
+    assert.deepStrictEqual(t.dc.filter((m) => m.t === 'recctl').map((m) => m.on), [false]);
+    assert.strictEqual(t.core.snapshot().recording, false);
+    assert.deepStrictEqual(t.recMsgs().map((m) => m.on), [true, false]);
+    await t.core.recordingsDone();
+    t.core.endSession('x', false);
+  }
+  {
+    // ... but a recording that "Record every session" started is not stopped by changing the phone's permission
+    const t = setup({ settings: { allowPhoneRecording: true, recordSessions: true } });
+    await t.connect();
+    assert.strictEqual(t.core.snapshot().recording, true);
+    t.data.allowPhoneRecording = false;
+    t.core.phoneRecordingChanged();
+    assert.strictEqual(t.core.snapshot().recording, true);
+    t.core.endSession('x', false);
+    await t.core.recordingsDone();
+  }
   console.log('host recording tests passed');
 })().catch((err) => { console.error(err); process.exit(1); });
