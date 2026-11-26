@@ -11,6 +11,7 @@ const Actions = require('./actions');
 const path = require('path');
 // --- session recording (recording.js) ---
 const Recording = require('./recording');
+const { PortMapper } = require('./upnp');
 /** Recordings go to <Videos>\Glidr and nowhere else. */
 const defaultRecordingsDir = () => Recording.recordingsDirIn(require('electron').app.getPath('videos'));
 // --- end session recording ---
@@ -46,8 +47,9 @@ class HostCore extends EventEmitter {
    * @param focusWindow optional (hwnd) => bool (tests): defaults to input.focusWindow
    * @param runAction optional ({file,args,opts}) => Promise (tests): runs a quick action; defaults to a detached shell-less spawn
    * @param actionClock optional () => ms (tests): the quick-action rate limiter's clock
+   * @param portMapper optional (tests): replaces the UPnP port mapper (upnp.js)
    */
-  constructor({ store, signaling, engine, input, clipboard, cursorPos, filesDir, windowRect, focusWindow, runAction, actionClock }) {
+  constructor({ store, signaling, engine, input, clipboard, cursorPos, filesDir, windowRect, focusWindow, runAction, actionClock, portMapper }) {
     super();
     this.store = store;
     this.sig = signaling;
@@ -74,6 +76,8 @@ class HostCore extends EventEmitter {
     this.recordingsDir = defaultRecordingsDir; // session recording: () => folder; tests replace it
     this.recDeps = {}; // tests: {fs, clock} for the recorder
     this.recPending = new Set(); // recordings still being flushed to disk
+    this.portMapper = portMapper || new PortMapper({ log: (m) => this.emit('log', m) }); // mobile data: see upnp.js
+    this.mappings = new Set(); // router ports opened for live sessions
 
     // <phonemedia> policy for the phone's camera / microphone; the window shows through the 'window' event (main.js)
     this.phoneMedia = new PhoneMedia({
@@ -217,9 +221,8 @@ class HostCore extends EventEmitter {
     switch (e.t) {
       case 'offer':
         s.audio = e.audio === true;
-        this.sig.publish(s.key, {
-          t: 'offer', from: 'h', sid: s.sid, ts: Date.now(), sdp: e.sdp, v: PROTOCOL, host: this.store.get('hostName'),
-        }).catch((err) => this.endSession('signaling failed: ' + err.message, true));
+        if (this.store.get('useUpnp') === true) this.#offerWithMapping(s, e.sdp); // mobile data: may add one candidate first
+        else this.#publishOffer(s, e.sdp);
         break;
       case 'dc-open':
         clearTimeout(s.timer);
@@ -401,6 +404,52 @@ class HostCore extends EventEmitter {
   #bounds(monitorId) {
     const d = displays.byId(monitorId);
     return { x: d.x, y: d.y, w: d.w, h: d.h };
+  }
+
+  #publishOffer(s, sdp) {
+    // The relay (TURN) the PC owner set up for mobile data: the phone needs the same login to allocate its own relay
+    // address. It travels inside the sealed offer, so only the paired phone can read it.
+    const turn = this.store.get('turn');
+    this.sig.publish(s.key, {
+      t: 'offer', from: 'h', sid: s.sid, ts: Date.now(), sdp, v: PROTOCOL, host: this.store.get('hostName'),
+      ...(turn?.urls?.length ? { turn: { urls: turn.urls, username: turn.username || '', credential: turn.credential || '' } } : {}),
+    }).catch((err) => this.endSession('signaling failed: ' + err.message, true));
+  }
+
+  /**
+   * Mobile data (see upnp.js): ask the router to forward one UDP port to this connection and offer that public address
+   * too. Whatever happens (no UPnP, a slow router, an error) the offer goes out within the mapper's timeout, unchanged
+   * when nothing could be opened. The port is closed again when the session ends.
+   */
+  async #offerWithMapping(s, sdp) {
+    let out = sdp;
+    try {
+      const m = await this.portMapper.mapForOffer(sdp);
+      if (m) {
+        if (this.sess !== s) { m.release(); return; } // the session ended while the router was asked
+        s.mapping = m;
+        this.mappings.add(m);
+        out = m.sdp;
+        this.emit('log', 'mobile data: a router port is open for this session');
+      }
+    } catch { /* never block the connection */ }
+    if (this.sess !== s) return;
+    this.#publishOffer(s, out);
+  }
+
+  #releaseMapping(s) {
+    const m = s.mapping;
+    if (!m) return;
+    s.mapping = null;
+    if (!this.mappings.delete(m)) return; // already closed by releaseMappings (app quit)
+    m.release().catch(() => {});
+  }
+
+  /** Closes every router port this app opened (app quit); waits at most 2 s. */
+  releaseMappings() {
+    const all = [...this.mappings];
+    this.mappings.clear();
+    return Promise.race([Promise.all(all.map((m) => m.release().catch(() => {}))), new Promise((r) => { setTimeout(r, 2000).unref?.(); })]);
   }
 
   // -------------------------------------------------------------- phone -> host control
@@ -732,6 +781,7 @@ class HostCore extends EventEmitter {
     s.cursor?.stop();
     s.files?.abort('session ended', false); // partial file deleted, nobody left to tell
     this.#recordingStop(s, false); // session recording: finalise the file (the engine is stopped below)
+    this.#releaseMapping(s); // mobile data: close the router port of this session
     this.phoneMedia.end(s); // <phonemedia> hides the camera window
     this.stats = null;
     this.input.reset();

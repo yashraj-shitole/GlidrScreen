@@ -17,7 +17,7 @@ const primaryInstance = SELFTEST || app.requestSingleInstanceLock();
 if (!primaryInstance) app.quit();
 
 const QRCode = require('qrcode');
-const { Store, UNCLAIMED_TTL_MS } = require('./store');
+const { Store, UNCLAIMED_TTL_MS, parseRelayUrls, normalizeTurn } = require('./store');
 const { Signaling } = require('./signaling');
 const { LanServer, isPrivateAddress } = require('./lanserver');
 const { InputInjector } = require('./input');
@@ -219,6 +219,11 @@ async function buildState() {
       allowLan: store.get('allowLan') !== false,
       recordSessions: store.get('recordSessions') === true, // session recording
       allowPhoneRecording: store.get('allowPhoneRecording') === true,
+      useUpnp: store.get('useUpnp') === true,
+      // the relay (TURN) for mobile data: the password is never sent to the window, only whether one is saved
+      relayUrls: (store.get('turn')?.urls || []).join(', '),
+      relayUsername: store.get('turn')?.username || '',
+      relayHasCredential: !!store.get('turn')?.credential,
     },
     // The PC's own list (paths and arguments are shown here only; the phone is only ever sent id, label and danger).
     actions: {
@@ -302,6 +307,14 @@ function registerIpc() {
         for (const k of ['allowControl', 'allowActions', 'allowFiles', 'keepAwake', 'endOnLock', 'shareAudio', 'allowLan', 'recordSessions']) if (typeof arg[k] === 'boolean') patch[k] = arg[k];
         if (typeof arg.allowPhoneMedia === 'boolean') patch.allowPhoneMedia = arg.allowPhoneMedia; // <phonemedia>
         if (typeof arg.allowPhoneRecording === 'boolean') patch.allowPhoneRecording = arg.allowPhoneRecording;
+        if (typeof arg.useUpnp === 'boolean') patch.useUpnp = arg.useUpnp;
+        if ('relayUrls' in arg || 'relayUsername' in arg || 'relayCredential' in arg) {
+          const cur = store.get('turn') || {};
+          const urls = 'relayUrls' in arg ? parseRelayUrls(arg.relayUrls) : (cur.urls || []);
+          const username = 'relayUsername' in arg ? String(arg.relayUsername).trim().slice(0, 300) : (cur.username || '');
+          const credential = 'relayCredential' in arg && String(arg.relayCredential).length ? String(arg.relayCredential).slice(0, 300) : (cur.credential || '');
+          patch.turn = urls.length ? normalizeTurn({ urls, username, credential }) : null; // no address = relay off, and the login is forgotten
+        }
         if (['auto', 'low', 'balanced', 'high'].includes(arg.quality)) patch.quality = arg.quality;
         if (['auto', 'h264', 'vp8', 'vp9', 'av1'].includes(arg.codec)) patch.codec = arg.codec;
         if (typeof arg.hostName === 'string' && arg.hostName.trim()) patch.hostName = arg.hostName.trim().slice(0, 40);
@@ -449,7 +462,7 @@ app.whenReady().then(async () => {
   app.on('before-quit', (e) => {
     if (presenceQuit) return;
     presenceQuit = true; e.preventDefault();
-    Promise.all([presence.quit(), core.recordingsDone()]).finally(() => app.quit()); // recordingsDone: a running recording is flushed first
+    Promise.all([presence.quit(), core.recordingsDone(), core.releaseMappings()]).finally(() => app.quit()); // a running recording is flushed and router ports are closed first
   });
   if (app.isPackaged) { try { app.setAsDefaultProtocolClient(links.SCHEME); } catch { /* registry not writable: links just stay off */ } }
   updates.start();

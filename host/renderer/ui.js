@@ -5,6 +5,7 @@ let editing = false;
 const TOGGLES = ['allowControl', 'allowActions', 'allowFiles', 'shareAudio', 'keepAwake', 'endOnLock', 'autostart', 'allowLan', 'recordSessions'];
 
 TOGGLES.push('allowPhoneMedia'); // phone camera and microphone (src/phonemedia.js)
+TOGGLES.push('useUpnp'); // mobile data: router port mapping (src/upnp.js)
 TOGGLES.push('allowPhoneRecording'); // the phone's Record button (src/host.js #phoneRecord)
 
 const STATUS = {
@@ -208,6 +209,10 @@ function renderSettings(s) {
     $('codec').value = s.settings.codec;
     $('hostName').value = s.settings.hostName;
     $('signalBase').value = s.settings.signalBase;
+    $('relayUrls').value = s.settings.relayUrls;
+    $('relayUsername').value = s.settings.relayUsername;
+    $('relayCredential').value = '';
+    $('relayCredential').placeholder = s.settings.relayHasCredential ? 'saved (type to replace)' : '';
   }
   $('signalStatus').textContent = `Signaling: ${s.signal}`;
   $('version').textContent = `Glidr Screen ${s.version}`;
@@ -328,6 +333,12 @@ for (const id of ['hostName', 'signalBase']) {
     }
     window.glidr.act('setting', { [id]: e.target.value });
   };
+}
+
+for (const id of ['relayUrls', 'relayUsername', 'relayCredential']) {
+  $(id).onfocus = () => { editing = true; };
+  $(id).onblur = () => { editing = false; };
+  $(id).onchange = (e) => { window.glidr.act('setting', { [id]: e.target.value }); if (id === 'relayCredential') e.target.value = ''; };
 }
 
 window.glidr.onState(render);

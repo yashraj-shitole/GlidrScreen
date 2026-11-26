@@ -105,9 +105,11 @@ targets with at least 8 dp between neighbours) and Apple's HIG (44 pt minimum hi
 
 ## Limits worth knowing
 
-* **Symmetric NAT on both ends** (some carrier-grade NATs) cannot be traversed without a relay. IPv6 usually works
-  anyway. The app reports this explicitly ("Could not open a direct connection"). Add a TURN server only if you accept
-  relayed media.
+* **A phone on mobile data** is behind a carrier NAT that gives it a different public port per destination: no hole punch
+  can reach it. IPv6 usually avoids that. Otherwise the PC offers a UPnP port mapping (only when the router has a public
+  WAN address; a router behind another NAT cannot help) and, if the PC owner sets one up, a TURN relay (a provider account
+  or their own coturn; media then passes through it, still end-to-end encrypted). The app reports a failed direct
+  connection explicitly ("Could not open a direct connection").
 * The PC app cannot capture or control the lock screen, UAC prompts or elevated windows (Windows isolates them).
   Run the host as administrator to control elevated windows.
 * 24 fps is the cap, not a guarantee: under heavy congestion resolution drops first (`maintain-framerate`).

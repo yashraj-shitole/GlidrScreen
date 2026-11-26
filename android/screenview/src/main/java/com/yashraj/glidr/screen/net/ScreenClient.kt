@@ -462,7 +462,7 @@ class ScreenClient(
             val ended = CompletableDeferred<String>()
             val connected = CompletableDeferred<Unit>()
             val gathered = CompletableDeferred<Unit>()
-            val peer = createPeer(ended, connected, gathered)
+            val peer = createPeer(ended, connected, gathered, RelayServer.parse(offer.optJSONObject("turn")))
             pcon = peer
             setRemote(peer, SessionDescription(SessionDescription.Type.OFFER, offer.getString("sdp")))
             val answer = createAnswer(peer)
@@ -553,9 +553,17 @@ class ScreenClient(
 
     // ------------------------------------------------------------------ peer connection
 
-    private fun createPeer(ended: CompletableDeferred<String>, connected: CompletableDeferred<Unit>, gathered: CompletableDeferred<Unit>): PeerConnection {
+    private fun createPeer(
+        ended: CompletableDeferred<String>, connected: CompletableDeferred<Unit>, gathered: CompletableDeferred<Unit>,
+        relay: RelayServer? = null,
+    ): PeerConnection {
         val factory = WebRtcRuntime.factory(appContext)
-        val cfg = PeerConnection.RTCConfiguration(listOf(PeerConnection.IceServer.builder(iceUrls).createIceServer())).apply {
+        // STUN always; plus the PC owner's relay (TURN) when the offer carries one, so mobile data can fall back to it
+        val servers = buildList {
+            add(PeerConnection.IceServer.builder(iceUrls).createIceServer())
+            relay?.let { add(PeerConnection.IceServer.builder(it.urls).setUsername(it.username).setPassword(it.credential).createIceServer()) }
+        }
+        val cfg = PeerConnection.RTCConfiguration(servers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE

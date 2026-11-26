@@ -5,6 +5,7 @@ import com.yashraj.glidr.screen.net.HostEvent
 import com.yashraj.glidr.screen.net.HostEvents
 import com.yashraj.glidr.screen.net.Msg
 import com.yashraj.glidr.screen.net.Quality
+import com.yashraj.glidr.screen.net.RelayServer
 import com.yashraj.glidr.screen.ui.streamCaption
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -167,5 +168,17 @@ class ProtocolExtrasTest {
         assertEquals(true, HostEvents.helloExtras(JSONObject("""{"t":"hello","recctl":true}""")).recordControl)
         assertEquals(false, HostEvents.helloExtras(JSONObject("""{"t":"hello","recctl":false}""")).recordControl)
         assertNull(HostEvents.helloExtras(JSONObject("""{"t":"hello"}""")).recordControl) // an older PC offers no button
+    }
+
+    @Test fun relayServerFromTheOffer() {
+        val ok = RelayServer.parse(JSONObject("""{"urls":["turn:r.example:3478","turns:r.example:443?transport=tcp"],"username":"u","credential":"p"}"""))
+        assertEquals(RelayServer(listOf("turn:r.example:3478", "turns:r.example:443?transport=tcp"), "u", "p"), ok)
+        assertNull(RelayServer.parse(null)) // an older PC: no relay, as before
+        assertNull(RelayServer.parse(JSONObject("""{"urls":[]}""")))
+        assertNull(RelayServer.parse(JSONObject("""{"urls":["http://evil.example","stun:s.example:3478","turn:"]}""")))
+        // bad entries are dropped, good ones kept, at most four
+        val mixed = RelayServer.parse(JSONObject("""{"urls":["http://x","turn:a:1","turn:b:1","turn:c:1","turn:d:1","turn:e:1"]}"""))!!
+        assertEquals(listOf("turn:a:1", "turn:b:1", "turn:c:1", "turn:d:1"), mixed.urls)
+        assertEquals("", mixed.username)
     }
 }

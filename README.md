@@ -205,8 +205,19 @@ android: gradlew.bat :screenview:testDebugUnitTest   crypto cross-compat with th
   has **not been tried with a real camera, a real phone or a real PC session yet**. It needs Android 10 or newer, stops when
   the app leaves the screen (Android does not let a camera run from the background without a foreground service), and
   there is no virtual webcam or microphone device (see above).
-* Peer-to-peer fails when both sides are behind symmetric NAT (some mobile carriers). IPv6 normally avoids it. A TURN
-  server can be added in `settings.json` (`turn`), at the price of relayed media.
+* **Mobile data.** A phone on mobile data sits behind a carrier NAT that gives it a different public port for every
+  destination, so a direct connection to the PC usually fails (the top bar says "Could not open a direct connection"). Two
+  PC settings address it, both off the critical path (a failure never blocks a connection):
+  * *Let a phone on mobile data connect* (on by default) asks your router, while a phone is connected, to forward one UDP
+    port to this PC (UPnP, like games and torrent clients do), and closes it again when the session ends. It only helps
+    when the router has UPnP switched on **and** its internet address is public. If your router sits behind another NAT
+    (your provider's, or a second router: its WAN address is then private, 10.x / 192.168.x / 100.64-127.x) it opens
+    nothing, because it could not help.
+  * *Relay server for mobile data (TURN)*, under Advanced: the address and login of a TURN relay. It works through any
+    NAT and is the fix for the case above. It needs an account with a TURN provider (Metered, Cloudflare Realtime, Twilio...)
+    or your own coturn server; Glidr Screen has no relay of its own. The media stays end-to-end encrypted, but it then
+    passes through that provider. The phone gets the same login inside the sealed offer.
+  IPv6 normally avoids all of this, when both your network and the carrier provide it.
 * The public ntfy.sh limits anonymous use to roughly 250 messages per IP address per day, and every connection uses a
   few. Presence markers are therefore posted only on changes and refreshed every 2 hours. If you connect very often,
   or test a lot (a day of testing can use the whole quota), the apps say "The signaling server's daily message limit

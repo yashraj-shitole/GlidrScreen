@@ -271,8 +271,18 @@ audio track really is in the offer, so a phone must look at `hello.audio` (or at
 never assume it. The phone stays receive-only; muting is local. The audio section adds roughly 800 bytes of SDP, about
 350 characters to the sealed offer frame (a representative offer is 2.6 kB of the 3.9 kB limit, see
 `host/test/offer-size.test.js`). Switching the shared monitor keeps the same audio track.
-* ICE: STUN only (Google, Cloudflare). **No TURN by default**, so media never goes through a relay. A TURN server can
-  be added in the host settings file (`turn`) for networks where peer-to-peer is impossible (symmetric NAT on both sides).
+* ICE: STUN (Google, Cloudflare) by default; media goes peer to peer. For mobile data (a phone behind a carrier NAT cannot be
+  reached by hole punching) the PC can add, in order of preference for the connection: (1) a router port mapping and (2) a
+  relay.
+  * **Port mapping (UPnP / IGD)**, setting `useUpnp` (on by default). When the offer is ready the host asks the router to
+    forward one UDP port to the host candidate's own port, only if the router's WAN address is public (not private or
+    100.64.0.0/10), and adds one `typ srflx` candidate with the router's address and that port next to the host candidate. The
+    request carries a one hour lease, the mapping is deleted when the session ends or the app quits, and the whole step
+    is limited to 2.5 s (the offer is sent unchanged on any failure). Nothing changes on the phone.
+  * **Relay (TURN)**, setting `turn` ({urls, username, credential}, edited in Advanced). The PC uses it for its own
+    candidates and adds `"turn":{"urls":[...],"username":"...","credential":"..."}` to the sealed `offer`, so the phone allocates
+    its own relay address from the same server. Only `turn:` / `turns:` addresses are accepted (at most 4); a phone that does
+    not know the field ignores it.
 
 ## Data channel `ctl` (reliable, ordered, JSON text)
 

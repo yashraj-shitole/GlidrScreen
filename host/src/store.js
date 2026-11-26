@@ -8,6 +8,22 @@ const { sanitizeLaunchers } = require('./actions');
 const { normalizeCodecPref } = require('./media');
 
 const UNCLAIMED_TTL_MS = 15 * 60 * 1000;
+
+const TURN_URL = /^turns?:[^\s?,]+(\?transport=(udp|tcp))?$/i;
+
+/** The relay (TURN) addresses in [text] (comma / space separated): only valid turn: and turns: ones, at most 4. */
+function parseRelayUrls(text) {
+  return String(text || '').split(/[\s,]+/).filter((u) => u.length <= 200 && TURN_URL.test(u)).slice(0, 4);
+}
+
+/** A stored relay setting as {urls, username, credential}, or null when it is unusable (no valid address). */
+function normalizeTurn(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const urls = (Array.isArray(raw.urls) ? raw.urls : typeof raw.urls === 'string' ? [raw.urls] : []).map(String).filter((u) => u.length <= 200 && TURN_URL.test(u)).slice(0, 4);
+  if (!urls.length) return null;
+  const text = (v) => (typeof v === 'string' ? v.slice(0, 300) : '');
+  return { urls, username: text(raw.username), credential: text(raw.credential) };
+}
 /** Pairing keys are stored as `enc:v1:<base64 of safeStorage ciphertext>`. Base64url keys never contain ':'. */
 const ENC_PREFIX = 'enc:v1:';
 
@@ -26,6 +42,7 @@ const DEFAULTS = {
   allowLan: true, // LAN signaling: a phone on the same Wi-Fi sets up the connection directly with this PC (see lanserver.js)
   lanPort: 0, // port of that server; 0 = pick a random free one in 49152-65535 at the first start, then keep it
   recordSessions: false, // save what the phone views to Videos\Glidr (off by default; the phone is told while it runs; see recording.js)
+  useUpnp: true, // while a phone is connected, ask the router to open ONE UDP port so a phone on mobile data can reach this PC (see upnp.js)
   allowPhoneRecording: true, // the phone may start and stop a recording of its own session (never records unless the phone taps Record; see host.js #phoneRecord)
   allowPhoneMedia: true, // the phone may send its camera and microphone (on by default; the PC owner can switch it off); shown in a window on this PC (see phonemedia.js). Also needs allowControl and a phone that is not view only
   phoneMediaSink: '', // audio output chosen in that window for the phone's microphone; '' = the system default
@@ -58,6 +75,8 @@ class Store {
     if (this.data.recordSessions !== true) this.data.recordSessions = false; // a hand-edited file cannot switch it on by accident
     if (!Number.isInteger(this.data.lanPort) || this.data.lanPort < 1024 || this.data.lanPort > 65535) this.data.lanPort = 0;
     if (this.data.actionsEnabled !== null && !Array.isArray(this.data.actionsEnabled)) this.data.actionsEnabled = null;
+    this.data.turn = normalizeTurn(this.data.turn); // a damaged or hand-edited relay setting is dropped, never half-used
+    if (typeof this.data.useUpnp !== 'boolean') this.data.useUpnp = true; // a damaged value falls back to the default (on)
     if (typeof this.data.allowPhoneRecording !== 'boolean') this.data.allowPhoneRecording = true; // a damaged value falls back to the default (on)
     if (typeof this.data.allowPhoneMedia !== 'boolean') this.data.allowPhoneMedia = true; // phone camera: a damaged value falls back to the default (on)
     if (typeof this.data.phoneMediaSink !== 'string' || this.data.phoneMediaSink.length > 300) this.data.phoneMediaSink = '';
@@ -174,4 +193,4 @@ class Store {
   }
 }
 
-module.exports = { Store, UNCLAIMED_TTL_MS, ENC_PREFIX };
+module.exports = { Store, UNCLAIMED_TTL_MS, ENC_PREFIX, parseRelayUrls, normalizeTurn };

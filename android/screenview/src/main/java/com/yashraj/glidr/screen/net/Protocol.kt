@@ -330,3 +330,22 @@ data class ActionResult(val id: String, val ok: Boolean, val reason: String?) {
         }
     }
 }
+
+/**
+ * The relay (TURN) server the PC owner set up for mobile data, carried in the sealed `offer` as
+ * `{"turn":{"urls":[...],"username":"...","credential":"..."}}`. Only well-formed `turn:` / `turns:` addresses are used
+ * (at most 4); anything else gives null and the phone connects without a relay, as before.
+ */
+data class RelayServer(val urls: List<String>, val username: String, val credential: String) {
+    companion object {
+        private val URL = Regex("^turns?:[^\\s?,]+(\\?transport=(udp|tcp))?$", RegexOption.IGNORE_CASE)
+
+        fun parse(o: JSONObject?): RelayServer? {
+            if (o == null) return null
+            val arr = o.optJSONArray("urls")
+            val urls = (0 until (arr?.length() ?: 0)).mapNotNull { arr!!.optString(it).takeIf { u -> u.length <= 200 && URL.matches(u) } }.take(4)
+            if (urls.isEmpty()) return null
+            return RelayServer(urls, o.optString("username").take(300), o.optString("credential").take(300))
+        }
+    }
+}
