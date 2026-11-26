@@ -372,10 +372,8 @@ fun SettingsSheet(
             SettingRow("Direct touch", "Tap the picture to click that spot", prefs.directTouch) { v -> onPrefs { it.copy(directTouch = v) } }
             SettingRow("Precision mode", "A second resting finger slows the pointer", prefs.precision) { v -> onPrefs { it.copy(precision = v) } }
             SettingRow("Sideways scroll strip", "A thin slider under the pad: drag left or right", prefs.edgeScroll) { v -> onPrefs { it.copy(edgeScroll = v) } }
-            SettingRow("Corner right-click", "Tap the bottom-right corner of the pad", prefs.cornerClick) { v -> onPrefs { it.copy(cornerClick = v) } }
             SettingRow("Left-handed", "Scroll strip on the left side", prefs.leftHanded) { v -> onPrefs { it.copy(leftHanded = v) } }
             SettingRow("One-handed layout", "Display buttons next to the tools, in thumb reach", prefs.oneHanded) { v -> onPrefs { it.copy(oneHanded = v) } }
-            SettingRow("Simple gestures", "Buttons for scrolling", prefs.simpleGestures) { v -> onPrefs { it.copy(simpleGestures = v) } }
             SettingRow("Three-finger swipes", "Up: task view. Down: desktop. Left, right: switch virtual desktop", prefs.swipeGestures) { v -> onPrefs { it.copy(swipeGestures = v) } }
             SettingRow("Haptics", "Vibrate on clicks", prefs.haptics) { v -> onPrefs { it.copy(haptics = v) } }
             SettingRow("Show stats", "fps, resolution, bitrate and ping", prefs.showStats) { v -> onPrefs { it.copy(showStats = v) } }

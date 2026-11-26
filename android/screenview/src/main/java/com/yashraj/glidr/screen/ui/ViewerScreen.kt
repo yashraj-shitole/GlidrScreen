@@ -49,7 +49,7 @@ import com.yashraj.glidr.screen.net.ConnectStages
 import com.yashraj.glidr.screen.net.MouseButton
 import com.yashraj.glidr.screen.net.ScreenClient
 
-private enum class Overlay { None, Keyboard, Displays, Settings, ConfirmExit }
+private enum class Overlay { None, Keyboard, Displays, More, Settings, ConfirmExit }
 
 @Composable
 fun ViewerScreen(
@@ -150,13 +150,12 @@ fun ViewerScreen(
     }
 
     val controls: @Composable (Modifier) -> Unit = { mod ->
-        // Portrait: the pad takes whatever the picture leaves. Landscape side panel: the pad keeps a usable fixed height
-        // and the panel scrolls, so a long tool grid can never squeeze the pad away.
-        Column(if (landscape) mod.verticalScroll(rememberScrollState()) else mod, verticalArrangement = Arrangement.spacedBy(Space.md)) {
-            Trackpad(client, prefs, hostWidth, haptic, if (landscape) Modifier.fillMaxWidth().height(136.dp) else Modifier.weight(1f).fillMaxWidth())
+        // The pad takes everything the rows below it leave: the mouse buttons, the pinned shortcuts, and one row with the
+        // two tools that stay in reach (Keyboard, More). Every other tool is in the More popup.
+        Column(mod, verticalArrangement = Arrangement.spacedBy(Space.md)) {
+            Trackpad(client, prefs, hostWidth, haptic, Modifier.weight(1f).fillMaxWidth())
             MouseButtons(client, haptic, leftHanded = prefs.leftHanded)
             ShortcutDeck(prefs.shortcuts, client, haptic)
-            if (prefs.simpleGestures) SimpleGestureButtons(client, haptic)
             if (prefs.oneHanded && sortedMonitors.size > 1) {
                 // within thumb reach: the display switches live next to the tools instead of in the top corner
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
@@ -169,24 +168,11 @@ fun ViewerScreen(
                     }
                 }
             }
-            // Every tool in one grid, each with an icon and a name. A tile appears only when it can do something here.
-            val tiles = buildList {
-                add(ToolTileSpec("Keyboard", onClick = { overlay = Overlay.Keyboard }) { Icon(Ico.Keyboard, it) })
-                add(ToolTileSpec("Direct touch", active = prefs.directTouch, onClick = { onPrefs { p -> p.copy(directTouch = !p.directTouch) } }) { Icon(Ico.Touch, it) })
-                if (monitors.isNotEmpty()) add(ToolTileSpec("Displays", onClick = { overlay = Overlay.Displays }) { Icon(Ico.Display, it) })
-                if (sortedMonitors.size > 1) add(ToolTileSpec("Next display", onClick = {
-                    val i = sortedMonitors.indexOfFirst { it.id == active }
-                    sortedMonitors.getOrNull((i + 1) % sortedMonitors.size)?.let { m -> client.switchMonitor(m.id) }
-                }) { Icon(Ico.Swap, it) })
-                add(ToolTileSpec("Clipboard", onClick = { extras.clipboardOpen = true }) { ExtraIcon(ExtraIco.Clipboard, it) })
-                add(ToolTileSpec("Send file", onClick = { extras.sendOpen = true }) { ExtraIcon(ExtraIco.Send, it) })
-                add(ToolTileSpec("Camera and mic", active = media.on, onClick = { extras.mediaOpen = true }) { MediaIcon(false, it) })
-                if (audio) add(ToolTileSpec(if (muted) "Unmute PC" else "Mute PC", active = muted, onClick = { client.setAudioMuted(!muted) }) {
-                    ExtraIcon(if (muted) ExtraIco.SpeakerOff else ExtraIco.Speaker, it)
-                })
-                if (quickActions.isNotEmpty()) add(ToolTileSpec("PC actions", onClick = { extras.actionsOpen = true }) { PowerIcon(it) })
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                ToolBarButton("Keyboard", active = false, modifier = Modifier.weight(1f), onClick = { overlay = Overlay.Keyboard }) { Icon(Ico.Keyboard, it) }
+                // lit while something inside it is on (direct touch, camera or microphone, muted PC audio)
+                ToolBarButton("More", active = prefs.directTouch || media.on || muted, modifier = Modifier.weight(1f), onClick = { overlay = Overlay.More }) { MoreIcon(it) }
             }
-            ToolGrid(tiles, ToolGridLayout.perRow(landscape))
         }
     }
 
@@ -210,7 +196,6 @@ fun ViewerScreen(
                         TopBar(hostName, state, stats, rtt, prefs.showStats, onExit) { overlay = Overlay.Settings }
                         if (live) {
                             controls(Modifier.weight(1f))
-                            Pill("Hide controls", { onPrefs { it.copy(panelCollapsed = true) } }, Modifier.fillMaxWidth())
                         }
                     }
                 }
@@ -228,6 +213,29 @@ fun ViewerScreen(
         when (overlay) {
             Overlay.Keyboard -> KeyboardSheet(client, haptic, prefs, onPrefs) { overlay = Overlay.None }
             Overlay.Displays -> MonitorSheet(client) { overlay = Overlay.None }
+            Overlay.More -> Sheet({ overlay = Overlay.None }) {
+                Label("More tools", style = Gs.type.body)
+                // A tile that opens something closes this popup first; the two switches stay so the person sees them change.
+                fun go(f: () -> Unit): () -> Unit = { overlay = Overlay.None; f() }
+                val tiles = buildList {
+                    add(ToolTileSpec("Direct touch", active = prefs.directTouch, onClick = { onPrefs { p -> p.copy(directTouch = !p.directTouch) } }) { Icon(Ico.Touch, it) })
+                    if (monitors.isNotEmpty()) add(ToolTileSpec("Displays", onClick = go { overlay = Overlay.Displays }) { Icon(Ico.Display, it) })
+                    if (sortedMonitors.size > 1) add(ToolTileSpec("Next display", onClick = go {
+                        val i = sortedMonitors.indexOfFirst { it.id == active }
+                        sortedMonitors.getOrNull((i + 1) % sortedMonitors.size)?.let { m -> client.switchMonitor(m.id) }
+                    }) { Icon(Ico.Swap, it) })
+                    add(ToolTileSpec("Clipboard", onClick = go { extras.clipboardOpen = true }) { ExtraIcon(ExtraIco.Clipboard, it) })
+                    add(ToolTileSpec("Send file", onClick = go { extras.sendOpen = true }) { ExtraIcon(ExtraIco.Send, it) })
+                    add(ToolTileSpec("Camera and mic", active = media.on, onClick = go { extras.mediaOpen = true }) { MediaIcon(false, it) })
+                    if (audio) add(ToolTileSpec(if (muted) "Unmute PC" else "Mute PC", active = muted, onClick = { client.setAudioMuted(!muted) }) {
+                        ExtraIcon(if (muted) ExtraIco.SpeakerOff else ExtraIco.Speaker, it)
+                    })
+                    if (quickActions.isNotEmpty()) add(ToolTileSpec("PC actions", onClick = go { extras.actionsOpen = true }) { PowerIcon(it) })
+                    if (landscape) add(ToolTileSpec("Hide controls", onClick = go { onPrefs { p -> p.copy(panelCollapsed = true) } }) { Icon(Ico.Pad, it) })
+                }
+                ToolGrid(tiles, ToolGridLayout.PORTRAIT_PER_ROW)
+                Pill("Done", { overlay = Overlay.None }, Modifier.fillMaxWidth())
+            }
             Overlay.Settings -> SettingsSheet(client, prefs, onPrefs, onDisconnect = onExit) { overlay = Overlay.None }
             Overlay.ConfirmExit -> Sheet({ overlay = Overlay.None }) {
                 Label("Disconnect from $hostName?", maxLines = 2, style = Gs.type.body)

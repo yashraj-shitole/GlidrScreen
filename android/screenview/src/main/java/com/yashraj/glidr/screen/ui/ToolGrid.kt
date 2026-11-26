@@ -1,5 +1,6 @@
 package com.yashraj.glidr.screen.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,12 +8,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /** One labelled tool: what it is drawn as, what it is called, whether it is switched on, and what a tap does. */
@@ -66,5 +70,33 @@ private fun ToolTile(t: ToolTileSpec, modifier: Modifier) {
             t.icon(fg)
             Label(t.label, color = fg, style = Gs.type.small.copy(textAlign = TextAlign.Center), maxLines = 2)
         }
+    }
+}
+
+/**
+ * A 56 dp bar button with the icon beside its name, for the two tools that stay under the mouse buttons (Keyboard and
+ * More). Same height as the mouse buttons, so the controls read as one stack of equal rows.
+ */
+@Composable
+fun ToolBarButton(label: String, active: Boolean, modifier: Modifier, onClick: () -> Unit, icon: @Composable (Color) -> Unit) {
+    val c = Gs.colors
+    val fg = if (active) c.ink else c.text
+    PressBox(
+        onClick, modifier.height(56.dp), if (active) "${label}, something inside is on" else label, RoundedCornerShape(Radius.control),
+        background = if (active) c.accent else c.s2, border = !active,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+            icon(fg)
+            Label(label, color = fg)
+        }
+    }
+}
+
+/** Three dots in a row: "more". Drawn like the other icons, on a 24 unit grid. */
+@Composable
+fun MoreIcon(tint: Color, size: Dp = 24.dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        for (x in listOf(5f, 12f, 19f)) drawCircle(tint, w * 0.085f, Offset(x * w / 24f, w / 2f))
     }
 }

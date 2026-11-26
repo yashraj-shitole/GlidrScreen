@@ -58,14 +58,12 @@ private const val DRAG_TAP_GAP_MS = 280L
 private const val PX_PER_NOTCH = 40f
 private const val EDGE_STRIP_DP = 48
 private const val CORNER_DP = 64
-private const val SIDE_STRIP_DP = 36 // thinner than the 48 dp vertical strip; still above the 32 dp tap-through size
 
 /**
  * Laptop-style trackpad: one finger moves, tap clicks, two-finger tap right-clicks, three-finger tap middle-clicks,
  * two fingers scroll, tap-then-drag drags. With "Three-finger swipes" on, three fingers that travel far enough in one
- * direction send a Windows shortcut instead (see [SwipeGestures]). A side strip (the right by default, the left when left-handed) is a scroll
- * strip. Opt-in: a bottom strip that scrolls sideways, a bottom-right corner that right-clicks, and precision mode
- * (a second finger resting on the pad slows the pointer).
+ * direction send a Windows shortcut instead (see [SwipeGestures]). A scroll wheel (the right by default, the left when left-handed) sits beside the pad.
+ * Opt-in: a thin sideways wheel under the pad, and precision mode (a second finger resting on the pad slows the pointer).
  */
 @Composable
 fun Trackpad(
@@ -82,7 +80,7 @@ fun Trackpad(
     var touching by remember { mutableStateOf(false) }
 
     Row(modifier.clip(RoundedCornerShape(Radius.pad)).background(c.s1).border(1.dp, c.line, RoundedCornerShape(Radius.pad))) {
-        if (prefs.leftHanded) ScrollStrip(client, prefs)
+        if (prefs.leftHanded) ScrollWheel(client, prefs, vertical = true)
         Column(Modifier.weight(1f).fillMaxHeight()) {
         Box(
             Modifier.weight(1f).fillMaxWidth()
@@ -108,7 +106,7 @@ fun Trackpad(
                         val slop = viewConfiguration.touchSlop
                         var zone = PadZones.classify(
                             first.position.x, first.position.y, size.width.toFloat(), size.height.toFloat(),
-                            false, p.cornerClick, EDGE_STRIP_DP.dp.toPx(), CORNER_DP.dp.toPx(),
+                            false, false, EDGE_STRIP_DP.dp.toPx(), CORNER_DP.dp.toPx(),
                         )
                         val dragMode = zone == PadZone.Normal && lastTapEnd > 0 && first.uptimeMillis - lastTapEnd < DRAG_TAP_GAP_MS
                         if (dragMode) client.buttonDown(MouseButton.Left)
@@ -209,8 +207,6 @@ fun Trackpad(
         ) {
             val dot = c.dot
             val line = c.line
-            val corner = prefs.cornerClick
-            val zoneTint = c.accent.copy(alpha = 0.10f)
             Canvas(Modifier.fillMaxSize()) {
                 val step = 24.dp.toPx()
                 var y = step / 2
@@ -218,13 +214,6 @@ fun Trackpad(
                     var x = step / 2
                     while (x < size.width) { drawCircle(dot, 1.4.dp.toPx(), Offset(x, y)); x += step }
                     y += step
-                }
-                // the opt-in corner is drawn as a tinted square; its name is written on it below
-                if (corner) {
-                    val s = CORNER_DP.dp.toPx()
-                    drawRect(zoneTint, Offset(size.width - s, size.height - s), androidx.compose.ui.geometry.Size(s, s))
-                    drawLine(line, Offset(size.width - s, size.height - s), Offset(size.width - s, size.height), 1.dp.toPx())
-                    drawLine(line, Offset(size.width - s, size.height - s), Offset(size.width, size.height - s), 1.dp.toPx())
                 }
             }
             if (!touching) {
@@ -247,124 +236,11 @@ fun Trackpad(
                         }
                     }
                 }
-                if (corner) {
-                    Box(Modifier.align(Alignment.BottomEnd).size(CORNER_DP.dp), contentAlignment = Alignment.Center) {
-                        Label("Right-click", color = c.dim, style = Gs.type.small, maxLines = 1)
-                    }
-                }
             }
         }
-        if (prefs.edgeScroll) SideScrollStrip(client, prefs)
+        if (prefs.edgeScroll) ScrollWheel(client, prefs, vertical = false)
         }
-        if (!prefs.leftHanded) ScrollStrip(client, prefs)
-    }
-}
-
-@Composable
-private fun ScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
-    val c = Gs.colors
-    val p by rememberUpdatedState(prefs)
-    val line = c.line
-    val arrow = c.dim
-    Box(
-        // This strip is on the screen edge, where Android's back swipe starts: keep that gesture off it.
-        Modifier.width(48.dp).fillMaxHeight().background(c.s2).systemGestureExclusion()
-            .semantics {
-                contentDescription = "Scroll strip. Drag up or down to scroll."
-                customActions = listOf(
-                    CustomAccessibilityAction("Scroll up") { client.scrollBy(0f, 3f); true },
-                    CustomAccessibilityAction("Scroll down") { client.scrollBy(0f, -3f); true },
-                )
-            }
-            .pointerInput(client) {
-                awaitEachGesture {
-                    val first = awaitFirstDown(requireUnconsumed = false)
-                    if (first.type == PointerType.Mouse) {
-                        do { val e = awaitPointerEvent() } while (e.changes.any { it.pressed })
-                        return@awaitEachGesture
-                    }
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Main)
-                        val ch = event.changes.firstOrNull() ?: break
-                        if (!ch.pressed) break
-                        client.scrollBy(0f, -ch.positionChange().y * p.scrollSpeed / PX_PER_NOTCH * 1.6f)
-                        ch.consume()
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val step = 16.dp.toPx()
-            val margin = 40.dp.toPx() // room for the arrows at both ends
-            var y = margin
-            while (y < size.height - margin + 1f) {
-                drawLine(line, Offset(size.width * 0.3f, y), Offset(size.width * 0.7f, y), 2.dp.toPx(), StrokeCap.Round)
-                y += step
-            }
-            // an arrow up at the top and one down at the bottom
-            val cx = size.width / 2
-            val a = 7.dp.toPx()
-            val sw = 2.5.dp.toPx()
-            val top = 22.dp.toPx()
-            drawLine(arrow, Offset(cx - a, top + a * 0.6f), Offset(cx, top - a * 0.6f), sw, StrokeCap.Round)
-            drawLine(arrow, Offset(cx, top - a * 0.6f), Offset(cx + a, top + a * 0.6f), sw, StrokeCap.Round)
-            val bottom = size.height - 22.dp.toPx()
-            drawLine(arrow, Offset(cx - a, bottom - a * 0.6f), Offset(cx, bottom + a * 0.6f), sw, StrokeCap.Round)
-            drawLine(arrow, Offset(cx, bottom + a * 0.6f), Offset(cx + a, bottom - a * 0.6f), sw, StrokeCap.Round)
-        }
-    }
-}
-
-/** The vertical strip's sideways twin: a thin slider along the bottom of the pad. Drag left or right to scroll sideways. */
-@Composable
-private fun SideScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
-    val c = Gs.colors
-    val p by rememberUpdatedState(prefs)
-    val line = c.line
-    val arrow = c.dim
-    Box(
-        Modifier.fillMaxWidth().height(SIDE_STRIP_DP.dp).background(c.s2)
-            .semantics { contentDescription = "Sideways scroll strip. Drag left or right to scroll sideways." }
-            .pointerInput(client) {
-                awaitEachGesture {
-                    val first = awaitFirstDown(requireUnconsumed = false)
-                    if (first.type == PointerType.Mouse) {
-                        do { val e = awaitPointerEvent() } while (e.changes.any { it.pressed })
-                        return@awaitEachGesture
-                    }
-                    while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Main)
-                        val ch = event.changes.firstOrNull() ?: break
-                        if (!ch.pressed) break
-                        val dir = if (p.naturalScroll) 1f else -1f
-                        client.scrollBy(-dir * ch.positionChange().x * p.scrollSpeed / PX_PER_NOTCH * 1.6f, 0f)
-                        ch.consume()
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val step = 16.dp.toPx()
-            val margin = 40.dp.toPx() // room for the arrows at both ends
-            drawLine(line, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
-            var x = margin
-            while (x < size.width - margin + 1f) {
-                drawLine(line, Offset(x, size.height * 0.3f), Offset(x, size.height * 0.7f), 2.dp.toPx(), StrokeCap.Round)
-                x += step
-            }
-            // an arrow left at the start and one right at the end
-            val cy = size.height / 2
-            val a = 6.dp.toPx()
-            val sw = 2.5.dp.toPx()
-            val left = 22.dp.toPx()
-            drawLine(arrow, Offset(left + a * 0.6f, cy - a), Offset(left - a * 0.6f, cy), sw, StrokeCap.Round)
-            drawLine(arrow, Offset(left - a * 0.6f, cy), Offset(left + a * 0.6f, cy + a), sw, StrokeCap.Round)
-            val right = size.width - 22.dp.toPx()
-            drawLine(arrow, Offset(right - a * 0.6f, cy - a), Offset(right + a * 0.6f, cy), sw, StrokeCap.Round)
-            drawLine(arrow, Offset(right + a * 0.6f, cy), Offset(right - a * 0.6f, cy + a), sw, StrokeCap.Round)
-        }
+        if (!prefs.leftHanded) ScrollWheel(client, prefs, vertical = true)
     }
 }
 
@@ -384,53 +260,6 @@ fun MouseButtons(client: ScreenClient, haptic: (Boolean) -> Unit, modifier: Modi
             }
         }
     }
-}
-
-/**
- * "Simple gestures": buttons for what the trackpad does with several fingers (middle click, scrolling), for people who
- * cannot do those. Left and Right are the hold buttons above. Scroll buttons repeat while held.
- */
-@Composable
-fun SimpleGestureButtons(client: ScreenClient, haptic: (Boolean) -> Unit, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        GestureButton("Scroll up", "Scroll up", Modifier.weight(1f), { client.scrollBy(0f, 3f); haptic(false) }, repeat = { client.scrollBy(0f, 1f) })
-        GestureButton("Scroll down", "Scroll down", Modifier.weight(1f), { client.scrollBy(0f, -3f); haptic(false) }, repeat = { client.scrollBy(0f, -1f) })
-    }
-}
-
-@Composable
-private fun GestureButton(label: String, description: String, modifier: Modifier, action: () -> Unit, repeat: (() -> Unit)? = null) {
-    val c = Gs.colors
-    var down by remember { mutableStateOf(false) }
-    val click by rememberUpdatedState(action)
-    val again by rememberUpdatedState(repeat)
-    LaunchedEffect(down) {
-        if (down && again != null) {
-            delay(350)
-            while (true) { again?.invoke(); delay(80) }
-        }
-    }
-    Box(
-        modifier.fillMaxHeight().clip(RoundedCornerShape(Radius.chip)).background(if (down) c.accent else c.s2)
-            .border(1.dp, c.line, RoundedCornerShape(Radius.chip))
-            .semantics { contentDescription = description; role = Role.Button; onClick(label = description) { click(); true } }
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    down = true
-                    click()
-                    try {
-                        do {
-                            val e = awaitPointerEvent()
-                            e.changes.forEach { it.consume() }
-                        } while (e.changes.any { it.pressed })
-                    } finally {
-                        down = false
-                    }
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) { Label(label, color = if (down) c.ink else c.text, maxLines = 1, style = Gs.type.small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)) }
 }
 
 @Composable

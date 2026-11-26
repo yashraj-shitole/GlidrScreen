@@ -42,14 +42,17 @@ with the project's own release key (not Google Play's) and the PC app and instal
 **Trackpad**
 * Laptop-style gestures: one finger moves the pointer, tap clicks, two-finger tap right-clicks, three-finger tap
   middle-clicks, two fingers scroll, tap-then-drag drags.
-* Scroll strip on the right edge of the pad.
-* Left and right mouse buttons under the pad. Hold one to keep it pressed, so they drag too.
+* A scroll wheel beside the pad, the same as in the Glidr app: ticks on a turning drum, a haptic click per tick (when
+  haptics are on), and a flick keeps it spinning.
+* Left, middle and right mouse buttons under the pad, laid out like the Glidr app (a wide Left, a narrow Middle drawn as
+  a scroll wheel, Right). Hold one to keep it pressed, so they drag too.
+* Under that, *Keyboard* and *More*. *More* opens a popup with the other tools: Direct touch, Displays, Next display,
+  Clipboard, Send file, Camera and mic, Mute PC, PC actions (and Hide controls in landscape).
 * *Direct touch*: tap the picture to click that exact spot on the PC, like a touchscreen.
 * Pointer speed (0.5x to 3.5x), pointer acceleration (Off / Low / Med / High), scroll speed and natural scrolling.
-* Optional extras, all off until you switch them on: a sideways scroll strip along the bottom edge, a bottom-right
-  corner right-click, *Precision mode* (a second resting finger slows the pointer), three-finger swipes (Win+Tab,
-  Win+D, previous and next virtual desktop), left-handed and one-handed layouts, and on-screen Middle / Up / Down
-  buttons for people who cannot use multi-finger gestures.
+* Optional extras, all off until you switch them on: a thin sideways scroll wheel under the pad, *Precision mode* (a
+  second resting finger slows the pointer), three-finger swipes (Win+Tab, Win+D, previous and next virtual desktop),
+  and left-handed and one-handed layouts.
 * Input settings are remembered per PC, with Reading, Precision and Presentation presets.
 * An attached Bluetooth or USB keyboard and mouse control the PC directly.
 
