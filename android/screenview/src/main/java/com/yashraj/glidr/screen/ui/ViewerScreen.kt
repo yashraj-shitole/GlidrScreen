@@ -154,7 +154,7 @@ fun ViewerScreen(
         // and the panel scrolls, so a long tool grid can never squeeze the pad away.
         Column(if (landscape) mod.verticalScroll(rememberScrollState()) else mod, verticalArrangement = Arrangement.spacedBy(Space.md)) {
             Trackpad(client, prefs, hostWidth, haptic, if (landscape) Modifier.fillMaxWidth().height(136.dp) else Modifier.weight(1f).fillMaxWidth())
-            MouseButtons(client, haptic)
+            MouseButtons(client, haptic, leftHanded = prefs.leftHanded)
             ShortcutDeck(prefs.shortcuts, client, haptic)
             if (prefs.simpleGestures) SimpleGestureButtons(client, haptic)
             if (prefs.oneHanded && sortedMonitors.size > 1) {
