@@ -56,7 +56,19 @@ fun scanQr(context: Context, onResult: (String) -> Unit, onError: (String) -> Un
 }
 
 /** Update check as the home screen shows it. */
-class UpdateUi(val currentVersion: String, val state: UpdateState, val onCheck: () -> Unit, val onOpen: (String) -> Unit)
+class UpdateUi(
+    val currentVersion: String, val state: UpdateState, val onCheck: () -> Unit,
+    /** The in-app download and install, null when none is under way. */
+    val install: com.yashraj.glidr.screen.update.Install? = null,
+    val onUpdate: (com.yashraj.glidr.screen.update.Release) -> Unit = {},
+    val onConfirmInstall: () -> Unit = {},
+    val onCancel: () -> Unit = {},
+    /** Whether the popup may come up by itself for this version (not snoozed with "Later"). */
+    val shouldPrompt: (String) -> Boolean = { true },
+    val onSnooze: (String) -> Unit = {},
+    /** Opens a web page (the release page). */
+    val onOpen: (String) -> Unit,
+)
 
 @Composable
 fun HomeScreen(
@@ -87,6 +99,12 @@ fun HomeScreen(
     val refreshPresence: () -> Unit = onRefreshPresence ?: { vm?.refreshPresence() }
     LaunchedEffect(Unit) { refreshPresence() } // once whenever the list appears; no background polling
     var showCode by remember { mutableStateOf(false) }
+    // The update popup comes up by itself once per version (until "Later"), or when the card is tapped.
+    var showUpdate by remember { mutableStateOf(false) }
+    val availableVersion = (update?.state as? UpdateState.Available)?.release?.version
+    LaunchedEffect(availableVersion) {
+        if (availableVersion != null && update.shouldPrompt(availableVersion)) showUpdate = true
+    }
     var scanError by remember { mutableStateOf<String?>(null) }
     var confirmForget by remember { mutableStateOf<PairedPc?>(null) }
     var manage by remember { mutableStateOf<PairedPc?>(null) }
@@ -118,9 +136,9 @@ fun HomeScreen(
                     ) {
                         Column(Modifier.weight(1f).padding(end = Space.md)) {
                             Label("Version ${avail.release.version} is available", style = Gs.type.body)
-                            Label("You have ${update.currentVersion}. Download and install the new APK.", color = c.dim, style = Gs.type.small)
+                            Label("You have ${update.currentVersion}. It installs from inside the app.", color = c.dim, style = Gs.type.small)
                         }
-                        Pill("Download", { update.onOpen(avail.release.downloadUrl) }, primary = true)
+                        Pill("Update", { showUpdate = true }, primary = true)
                     }
                 }
             }
@@ -228,6 +246,9 @@ fun HomeScreen(
         }
 
         if (lock != null && showLock) LockSettingsSheet(lock) { showLock = false }
+        (update?.state as? UpdateState.Available)?.let { avail ->
+            if (showUpdate) UpdateSheet(avail.release, update, update.install) { showUpdate = false }
+        }
         if (showCode) CodeSheet(pairError, onClearError, { showCode = false }) { text ->
             val pc = onPair(text)
             if (pc != null) { showCode = false; onConnect(pc) }

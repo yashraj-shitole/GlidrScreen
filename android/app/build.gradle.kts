@@ -28,8 +28,8 @@ android {
         applicationId = "com.yashraj.glidr.screen"
         minSdk = 29
         targetSdk = 37
-        versionCode = 4
-        versionName = "2.1.0"
+        versionCode = 5
+        versionName = "2.1.1"
     }
 
     buildFeatures {

@@ -14,4 +14,9 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <application>
+        <!-- Android's word on an in-app update install session. Only the system's PendingIntent reaches it. -->
+        <receiver android:name="com.yashraj.glidr.screen.update.InstallReceiver" android:exported="false" />
+    </application>
+
 </manifest>

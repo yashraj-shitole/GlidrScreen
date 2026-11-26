@@ -174,6 +174,31 @@ class ScreenViewModel(app: Application) : AndroidViewModel(app) {
         checkForUpdates()
     }
 
+    /** Progress of the in-app download and install; null when none is under way. */
+    val install: StateFlow<com.yashraj.glidr.screen.update.Install?> get() = com.yashraj.glidr.screen.update.ScreenUpdater.get(getApplication()).state
+
+    fun startUpdate(release: com.yashraj.glidr.screen.update.Release) {
+        val v = updateSource?.currentVersion ?: return
+        com.yashraj.glidr.screen.update.ScreenUpdater.get(getApplication()).install(release, "GlidrScreen-Android/$v")
+    }
+
+    fun cancelUpdate() = com.yashraj.glidr.screen.update.ScreenUpdater.get(getApplication()).cancel()
+
+    /** Android's own install prompt, once it asked for one; each prompt can be taken once. */
+    fun takeInstallPrompt(): android.content.Intent? = com.yashraj.glidr.screen.update.ScreenUpdater.get(getApplication()).takeConfirmation()
+
+    // "Later" on the update popup keeps it away for a day for the same version; a newer version asks at once.
+    private val updatePrefs get() = getApplication<Application>().getSharedPreferences("glidr_screen_updates", android.content.Context.MODE_PRIVATE)
+
+    fun shouldPromptUpdate(version: String): Boolean = updatePrefs.let {
+        com.yashraj.glidr.screen.update.UpdatePrompt.shouldAsk(version, it.getString("snoozed_version", null), it.getLong("snoozed_until", 0L), System.currentTimeMillis())
+    }
+
+    fun snoozeUpdate(version: String) {
+        updatePrefs.edit().putString("snoozed_version", version)
+            .putLong("snoozed_until", System.currentTimeMillis() + com.yashraj.glidr.screen.update.UpdatePrompt.SNOOZE_MS).apply()
+    }
+
     fun checkForUpdates() {
         val src = updateSource ?: return
         if (_update.value == UpdateState.Checking) return

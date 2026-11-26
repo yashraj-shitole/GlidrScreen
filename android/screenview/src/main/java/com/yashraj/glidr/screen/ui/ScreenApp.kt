@@ -67,6 +67,7 @@ fun GlidrScreenApp(
     val client by viewModel.client.collectAsState()
     val pairError by viewModel.pairError.collectAsState()
     val update by viewModel.update.collectAsState()
+    val install by viewModel.install.collectAsState()
     val wakeNote by viewModel.wakeNote.collectAsState()
     val presence by viewModel.presence.collectAsState()
     val context = LocalContext.current
@@ -156,9 +157,14 @@ fun GlidrScreenApp(
                     onRename = viewModel::rename,
                     onClose = onClose,
                     lock = viewModel.lock,
-                    update = if (updates != null) UpdateUi(updates.currentVersion, update, viewModel::checkForUpdates) { url ->
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
-                    } else null,
+                    update = if (updates != null) UpdateUi(
+                        currentVersion = updates.currentVersion, state = update, onCheck = viewModel::checkForUpdates,
+                        install = install, onUpdate = viewModel::startUpdate,
+                        onConfirmInstall = { viewModel.takeInstallPrompt()?.let { runCatching { context.startActivity(it) } } },
+                        onCancel = viewModel::cancelUpdate,
+                        shouldPrompt = viewModel::shouldPromptUpdate, onSnooze = viewModel::snoozeUpdate,
+                        onOpen = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) } },
+                    ) else null,
                 )
                 if (shares.uris.isNotEmpty()) ShareWaitingCard(shares, Modifier.align(Alignment.BottomCenter))
             }

@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The standalone app installs its own updates (downloaded inside the app, confirmed by Android). A host app that
+         embeds the library and wants this declares the permission itself. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
 
     <!-- Camera and microphone to the PC: asked for only when the person switches them on in the viewer, never at app start.
