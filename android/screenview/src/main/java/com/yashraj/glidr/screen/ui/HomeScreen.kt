@@ -204,7 +204,7 @@ fun HomeScreen(
             if (err != null) item { Label(err, color = c.bad, style = Gs.type.small) }
             item {
                 Label(
-                    "Your PC and phone talk directly over an encrypted link. No video passes through any server.",
+                    "Your PC and phone talk over an encrypted link, directly whenever they can. Video only passes through a server if your PC has a relay set up for mobile data.",
                     color = c.dim, style = Gs.type.small, modifier = Modifier.padding(vertical = Space.sm),
                 )
             }

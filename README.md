@@ -9,10 +9,10 @@ Video goes **directly phone <-> PC over WebRTC** (24 fps, encrypted). There is n
 | Phone app + embeddable library | `android/` | Kotlin, Compose, WebRTC; `:screenview` is the library, `:app` a thin shell |
 | Design docs | `docs/` | [ARCHITECTURE](docs/ARCHITECTURE.md), [PROTOCOL](docs/PROTOCOL.md) |
 
-## Download (v2.1.2)
-- **Phone app:** [GlidrScreen-2.1.2.apk](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.1.2/GlidrScreen-2.1.2.apk). Android 10 or newer; allow installing from your browser or file manager.
-- **PC app:** [GlidrScreen-2.1.2-win-x64.zip](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.1.2/GlidrScreen-2.1.2-win-x64.zip). Unzip anywhere and run `GlidrScreen.exe` (Windows 10 or newer, x64).
-- **PC installer** [GlidrScreen-2.1.2-setup.exe](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.1.2/GlidrScreen-2.1.2-setup.exe): a one-click, per-user install into `%LOCALAPPDATA%\Programs\glidr-screen-host` (no administrator rights), with a Start menu shortcut. An installed copy can update itself silently, see [Updates](#updates). Pairings and settings live in your user profile and survive updates and uninstalls.
+## Download (v2.1.3)
+- **Phone app:** [GlidrScreen-2.1.3.apk](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.1.3/GlidrScreen-2.1.3.apk). Android 10 or newer; allow installing from your browser or file manager.
+- **PC app:** [GlidrScreen-2.1.3-win-x64.zip](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.1.3/GlidrScreen-2.1.3-win-x64.zip). Unzip anywhere and run `GlidrScreen.exe` (Windows 10 or newer, x64).
+- **PC installer** [GlidrScreen-2.1.3-setup.exe](https://github.com/yashraj-shitole/GlidrScreen/releases/download/v2.1.3/GlidrScreen-2.1.3-setup.exe): a one-click, per-user install into `%LOCALAPPDATA%\Programs\glidr-screen-host` (no administrator rights), with a Start menu shortcut. An installed copy can update itself silently, see [Updates](#updates). Pairings and settings live in your user profile and survive updates and uninstalls.
 
 All downloads are on the [Releases page](https://github.com/yashraj-shitole/GlidrScreen/releases). The APK is signed
 with the project's own release key (not Google Play's) and the PC app and installer are not code-signed, so Windows SmartScreen warns on first run ("Windows protected your PC": choose **More info**, then **Run anyway**). Files the app downloads for a silent update are not marked as coming from the internet, so a silent update should not show the warning again (not verified yet).
