@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Android 17 blocks an app that targets API 37 from every address on the local network (the PC's LAN signaling and the
+         direct WebRTC path over Wi-Fi) until the person allows this; without it the phone only reaches the PC over the internet. -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
     <!-- Phone camera and microphone to the PC; requested at run time when the person switches them on, never at start. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

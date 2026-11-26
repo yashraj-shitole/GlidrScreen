@@ -1,6 +1,12 @@
 package com.yashraj.glidr.screen.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import android.net.Uri
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -29,6 +35,9 @@ import com.yashraj.glidr.screen.signal.DEFAULT_SIGNAL_BASE
 import com.yashraj.glidr.screen.signal.PairingInfo
 import com.yashraj.glidr.screen.signal.PairingParser
 import com.yashraj.glidr.screen.update.UpdateSource
+
+/** `android.permission.ACCESS_LOCAL_NETWORK` (API 36+); a literal so the file compiles on any compileSdk. */
+private const val LOCAL_NETWORK_PERMISSION = "android.permission.ACCESS_LOCAL_NETWORK"
 
 /**
  * The whole Glidr Screen feature as one composable: list of PCs, pairing, and the live viewer with trackpad.
@@ -62,6 +71,23 @@ fun GlidrScreenApp(
     val presence by viewModel.presence.collectAsState()
     val context = LocalContext.current
     val locked by viewModel.lock.locked.collectAsState()
+
+    // Android 17 (API 37) blocks an app from every address on the local network until the person allows "local network"
+    // access, so the PC's LAN signaling and the direct Wi-Fi WebRTC path silently time out. Asked for when the person
+    // taps Connect, then the connection continues whatever the answer is (the internet path still works).
+    var afterLanAnswer by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val lanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        afterLanAnswer?.invoke()
+        afterLanAnswer = null
+    }
+    val connectWithLan: (com.yashraj.glidr.screen.signal.PairedPc) -> Unit = { pc ->
+        val needs = Build.VERSION.SDK_INT >= 36 &&
+            ContextCompat.checkSelfPermission(context, LOCAL_NETWORK_PERMISSION) != PackageManager.PERMISSION_GRANTED
+        if (needs) {
+            afterLanAnswer = { viewModel.connect(pc) }
+            lanLauncher.launch(LOCAL_NETWORK_PERMISSION)
+        } else viewModel.connect(pc)
+    }
 
     // The lock engages when the app has been in the background for the chosen delay. Activity stop/start is the signal
     // (ProcessLifecycleOwner is not a dependency). The first ON_START replayed on registration does nothing.
@@ -99,7 +125,7 @@ fun GlidrScreenApp(
             val info = PairingParser.parse(pendingLink)
             when {
                 info == null -> viewModel.pair(pendingLink) // sets the "does not look like a pairing code" error
-                pcs.any { it.key == info.keyText } -> viewModel.pair(pendingLink)?.let { viewModel.connect(it) }
+                pcs.any { it.key == info.keyText } -> viewModel.pair(pendingLink)?.let(connectWithLan)
                 else -> linkToConfirm = pendingLink to info
             }
             onLinkConsumed()
@@ -121,7 +147,7 @@ fun GlidrScreenApp(
                     pairError = pairError,
                     onPair = viewModel::pair,
                     onClearError = viewModel::clearPairError,
-                    onConnect = viewModel::connect,
+                    onConnect = connectWithLan,
                     onWake = viewModel::wake,
                     presence = presence,
                     onRefreshPresence = viewModel::refreshPresence,
@@ -151,7 +177,7 @@ fun GlidrScreenApp(
                         Pill("Cancel", { linkToConfirm = null }, Modifier.weight(1f))
                         Pill("Pair", {
                             linkToConfirm = null
-                            viewModel.pair(text)?.let { viewModel.connect(it) }
+                            viewModel.pair(text)?.let(connectWithLan)
                         }, Modifier.weight(1f), primary = true)
                     }
                 }
