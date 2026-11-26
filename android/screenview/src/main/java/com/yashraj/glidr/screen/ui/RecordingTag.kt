@@ -45,9 +45,9 @@ fun RecordingTag(modifier: Modifier = Modifier) {
     }
 }
 
-/** Hook for the video area (one line in [ViewerVideoOverlays]): the tag, bottom left, only while the PC records. */
+/** One item of the viewer's status stack (top left of the picture): the tag, only while the PC records. */
 @Composable
-fun BoxScope.RecordingOverlay(client: ScreenClient) {
+fun RecordingStatus(client: ScreenClient) {
     val recording by client.recording.collectAsState()
-    if (recording) RecordingTag(Modifier.align(Alignment.BottomStart).padding(Space.md))
+    if (recording) RecordingTag()
 }

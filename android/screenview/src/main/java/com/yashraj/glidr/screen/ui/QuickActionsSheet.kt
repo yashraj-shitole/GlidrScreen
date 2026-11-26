@@ -47,6 +47,15 @@ object QuickActionText {
     /** The rows of the main list: everything except "Cancel shutdown", which has its own row while a countdown runs. */
     fun listed(all: List<QuickAction>): List<QuickAction> = all.filter { it.id != QuickAction.CANCEL_SHUTDOWN }
 
+    /** The built-in actions that change the PC's power state or lock it (the host's fixed list). */
+    private val POWER_IDS = setOf("lock", "sleep", "restart", "shutdown")
+
+    /** "Power": lock, sleep, restart, shut down. */
+    fun powerRows(all: List<QuickAction>): List<QuickAction> = listed(all).filter { it.id in POWER_IDS }
+
+    /** "Open on this PC": the programs and links the PC owner added. Not power actions, so they get their own heading. */
+    fun launcherRows(all: List<QuickAction>): List<QuickAction> = listed(all).filter { it.id !in POWER_IDS }
+
     /** The "Cancel shutdown" action when the PC offers it and a restart or shutdown was just sent, else null. */
     fun cancelRow(all: List<QuickAction>, pending: Boolean): QuickAction? =
         if (pending) all.firstOrNull { it.id == QuickAction.CANCEL_SHUTDOWN } else null
@@ -55,19 +64,8 @@ object QuickActionText {
     fun needsConfirm(a: QuickAction): Boolean = a.danger
 }
 
-/** 48 dp round-cornered button that sits on the picture, with a power symbol. Shown only while the PC offers actions. */
 @Composable
-fun QuickActionsChip(client: ScreenClient, onClick: () -> Unit) {
-    val actions by client.quickActions.collectAsState()
-    if (actions.isEmpty()) return
-    val shape = RoundedCornerShape(Radius.control)
-    PressBox(onClick, Modifier.height(48.dp), "Quick actions", shape, background = Color(0xCC000000)) {
-        Row(Modifier.padding(horizontal = Space.md), verticalAlignment = Alignment.CenterVertically) { PowerIcon(Color.White) }
-    }
-}
-
-@Composable
-private fun PowerIcon(tint: Color, size: Dp = 24.dp) {
+fun PowerIcon(tint: Color, size: Dp = 24.dp) {
     Canvas(Modifier.size(size)) {
         val w = this.size.width
         val sw = w * 0.085f
@@ -117,15 +115,21 @@ fun QuickActionsSheet(client: ScreenClient, onDismiss: () -> Unit) {
             Pill(QuickActionText.confirmButton(ask), { client.runAction(ask.id, confirm = true); confirming = null }, Modifier.fillMaxWidth(), danger = true)
             Pill("Cancel", { confirming = null }, Modifier.fillMaxWidth())
         } else {
-            Label("Quick actions", style = Gs.type.body)
+            Label("PC actions", style = Gs.type.body)
             Label("These run on your PC. Your PC decides what is listed here.", color = c.dim, style = Gs.type.small)
             QuickActionText.cancelRow(actions, pending)?.let { cancel ->
                 ActionRow("Cancel shutdown", danger = false, highlighted = true) { client.runAction(cancel.id) }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) {
-                for (a in QuickActionText.listed(actions)) {
-                    ActionRow(a.label, a.danger) { if (QuickActionText.needsConfirm(a)) confirming = a else client.runAction(a.id) }
-                }
+            val power = QuickActionText.powerRows(actions)
+            val launchers = QuickActionText.launcherRows(actions)
+            fun run(a: QuickAction) { if (QuickActionText.needsConfirm(a)) confirming = a else client.runAction(a.id) }
+            if (power.isNotEmpty()) {
+                if (launchers.isNotEmpty()) Label("Power", color = c.dim, style = Gs.type.small)
+                Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) { power.forEach { ActionRow(it.label, it.danger) { run(it) } } }
+            }
+            if (launchers.isNotEmpty()) {
+                Label("Open on this PC", color = c.dim, style = Gs.type.small)
+                Column(verticalArrangement = Arrangement.spacedBy(Space.sm)) { launchers.forEach { ActionRow(it.label, it.danger) { run(it) } } }
             }
             feedback?.let { Label(it, color = c.accentText, style = Gs.type.small) }
             Pill("Done", onDismiss, Modifier.fillMaxWidth())

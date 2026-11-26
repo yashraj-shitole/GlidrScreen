@@ -34,27 +34,32 @@ private val Scrim = Color(0xB3000000)
 @Composable
 fun BoxScope.WindowShareOverlay(client: ScreenClient) {
     val c = Gs.colors
-    val kind by client.activeKind.collectAsState()
-    val window by client.activeWindow.collectAsState()
     var notice by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(client) { client.sourceMessage.collect { notice = it } }
     LaunchedEffect(notice) { if (notice != null) { delay(3_500); notice = null } }
 
     val shape = RoundedCornerShape(Radius.control)
-    val w = window
-    if (kind == SourceKind.Window && w != null) {
-        // under the display buttons (44 dp) of the base top-left row
-        Box(
-            Modifier.align(Alignment.TopStart).padding(start = Space.md, top = Space.md + 44.dp + Space.sm).widthIn(max = 240.dp)
-                .height(40.dp).clip(shape).background(Scrim, shape).border(1.dp, c.line, shape).padding(horizontal = Space.lg),
-            contentAlignment = Alignment.Center,
-        ) { Label("Window: ${w.title.ifBlank { "Untitled" }}", color = Color.White, style = Gs.type.small, maxLines = 1) }
-    }
     notice?.let { text ->
         Box(
             Modifier.align(Alignment.BottomCenter).padding(Space.lg).clip(shape).background(Scrim, shape).border(1.dp, c.line, shape)
                 .padding(horizontal = Space.lg, vertical = Space.md),
             contentAlignment = Alignment.Center,
         ) { Label(text, color = Color.White, style = Gs.type.small) }
+    }
+}
+
+/** One item of the viewer's status stack (top left of the picture): "Window: <title>" while one window is shared. */
+@Composable
+fun WindowTag(client: ScreenClient) {
+    val c = Gs.colors
+    val kind by client.activeKind.collectAsState()
+    val window by client.activeWindow.collectAsState()
+    val w = window
+    if (kind == SourceKind.Window && w != null) {
+        val shape = RoundedCornerShape(Radius.control)
+        Box(
+            Modifier.widthIn(max = 240.dp).height(40.dp).clip(shape).background(Scrim, shape).border(1.dp, c.line, shape).padding(horizontal = Space.lg),
+            contentAlignment = Alignment.Center,
+        ) { Label("Window: ${w.title.ifBlank { "Untitled" }}", color = Color.White, style = Gs.type.small, maxLines = 1) }
     }
 }

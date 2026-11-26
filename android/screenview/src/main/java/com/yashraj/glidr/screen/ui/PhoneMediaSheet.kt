@@ -81,10 +81,10 @@ private data class Ask(val camera: Boolean, val microphone: Boolean)
  * continue without a foreground service, and nobody expects a hidden camera).
  */
 @Composable
-fun BoxScope.PhoneMediaOverlay(client: ScreenClient) {
+fun PhoneMediaHost(client: ScreenClient, extras: ViewerExtras) {
     val state by client.phoneMedia.collectAsState()
     val context = LocalContext.current
-    var open by remember { mutableStateOf(false) }
+    var open by extras::mediaOpen // opened by the "Camera and mic" tile in the viewer's tool grid
     var ask by remember { mutableStateOf<Ask?>(null) }
     var denied by remember { mutableStateOf(false) }
 
@@ -117,14 +117,6 @@ fun BoxScope.PhoneMediaOverlay(client: ScreenClient) {
             if (camera) client.setPhoneCamera(true)
             if (microphone) client.setPhoneMicrophone(true)
         } else ask = Ask(camera, microphone)
-    }
-
-    Row(
-        Modifier.align(Alignment.BottomStart).padding(Space.md),
-        horizontalArrangement = Arrangement.spacedBy(Space.sm), verticalAlignment = Alignment.CenterVertically,
-    ) {
-        MediaChip(state.on) { open = true }
-        PhoneMediaText.tag(state)?.let { LiveTag(it) }
     }
 
     if (open) {
@@ -205,19 +197,11 @@ private fun ToggleRow(title: String, sub: String, on: Boolean, onChange: (Boolea
     }
 }
 
-/** 48 dp chip that opens the sheet; accent while the camera or microphone is on. */
+/** One item of the viewer's status stack (top left of the picture): "Camera on" / "Mic on" while either runs. */
 @Composable
-private fun MediaChip(active: Boolean, onClick: () -> Unit) {
-    val c = Gs.colors
-    PressBox(
-        onClick, Modifier.height(48.dp), "Camera and mic", RoundedCornerShape(Radius.control),
-        background = if (active) c.accent else Scrim, border = !active,
-    ) {
-        Row(Modifier.padding(horizontal = Space.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-            MediaIcon(false, if (active) c.ink else Color.White)
-            MediaIcon(true, if (active) c.ink else Color.White)
-        }
-    }
+fun MediaLiveTag(client: ScreenClient) {
+    val state by client.phoneMedia.collectAsState()
+    PhoneMediaText.tag(state)?.let { LiveTag(it) }
 }
 
 /** "Camera on" / "Mic on": same look as the viewer's other tags, with a red dot so it reads as live. */
@@ -246,7 +230,7 @@ private fun openAppSettings(context: Context) {
 
 /** A camera (false) or a microphone (true), drawn on the same 24-unit grid and stroke as the other icons. */
 @Composable
-private fun MediaIcon(microphone: Boolean, tint: Color, size: Dp = 24.dp) {
+fun MediaIcon(microphone: Boolean, tint: Color, size: Dp = 24.dp) {
     Canvas(Modifier.size(size)) {
         val w = this.size.width
         val sw = w * 0.085f

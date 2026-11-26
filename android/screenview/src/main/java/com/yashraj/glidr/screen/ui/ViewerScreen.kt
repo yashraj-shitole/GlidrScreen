@@ -8,12 +8,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -68,6 +71,10 @@ fun ViewerScreen(
     val videoSize by client.videoSize.collectAsState()
     val diag by client.diag.collectAsState()
     val stage by client.stage.collectAsState()
+    val media by client.phoneMedia.collectAsState()
+    val audio by client.audioActive.collectAsState()
+    val muted by client.audioMuted.collectAsState()
+    val quickActions by client.quickActions.collectAsState()
     var overlay by remember { mutableStateOf(Overlay.None) }
     val zoom = remember { VideoViewState() }
     val extras = rememberViewerExtras() // HOOK 1/3: locked banner, clipboard, follow pointer, mute (see Banners.kt)
@@ -96,21 +103,44 @@ fun ViewerScreen(
         Box(mod.background(c.bg)) {
             RemoteVideo(track, client, zoom, prefs.directTouch, videoSize, haptic, Modifier.fillMaxSize())
             if (live) {
-                Row(Modifier.align(Alignment.TopStart).padding(Space.md), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                // Top left: ONE stack, so two things can never land on the same spot. First the display numbers, then the
+                // status tags (shared window, PC recording, phone camera or microphone live). Tags only inform; no button
+                // of this stack covers the picture except the display numbers.
+                Column(Modifier.align(Alignment.TopStart).padding(Space.md), verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     if (sortedMonitors.size > 1 && !prefs.oneHanded) {
-                        sortedMonitors.forEachIndexed { i, m ->
-                            val on = m.id == active
-                            Box(
-                                Modifier.size(44.dp).clip(CircleShape).background(if (on) c.accent else Color80).clickable { client.switchMonitor(m.id); haptic(false) }
-                                    .semantics { contentDescription = "Display ${i + 1}" },
-                                contentAlignment = Alignment.Center,
-                            ) { Label("${i + 1}", color = if (on) c.ink else c.text) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                            sortedMonitors.forEachIndexed { i, m ->
+                                val on = m.id == active
+                                Box(
+                                    Modifier.size(44.dp).clip(CircleShape).background(if (on) c.accent else Color80).clickable { client.switchMonitor(m.id); haptic(false) }
+                                        .semantics { contentDescription = "Display ${i + 1}" },
+                                    contentAlignment = Alignment.Center,
+                                ) { Label("${i + 1}", color = if (on) c.ink else c.text) }
+                            }
                         }
                     }
+                    WindowTag(client)
+                    RecordingStatus(client)
+                    MediaLiveTag(client)
                 }
-                Row(Modifier.align(Alignment.TopEnd).padding(Space.md), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                // Top right: the view-only notice and, while zoomed in, the two zoom controls (labelled).
+                Column(Modifier.align(Alignment.TopEnd).padding(Space.md), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Space.sm)) {
                     if (!control) Tag("View only")
-                    if (zoom.zoomed) Box(Modifier.size(44.dp).clip(CircleShape).background(Color80).clickable { zoom.reset() }.semantics { contentDescription = "Reset zoom" }, contentAlignment = Alignment.Center) { Icon(Ico.Reset, c.text) }
+                    if (zoom.zoomed) {
+                        OverlayChip(ExtraIco.Pointer, if (zoom.followCursor) "Follow pointer, on" else "Follow pointer, off", zoom.followCursor, "Follow pointer") {
+                            zoom.followCursor = !zoom.followCursor
+                        }
+                        Box(
+                            Modifier.height(48.dp).clip(RoundedCornerShape(Radius.control)).background(Color80).border(1.dp, c.line, RoundedCornerShape(Radius.control))
+                                .clickable { zoom.reset() }.padding(horizontal = Space.lg).semantics { contentDescription = "Reset zoom" },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                                Icon(Ico.Reset, c.text)
+                                Label("Reset zoom", color = c.text, style = Gs.type.small)
+                            }
+                        }
+                    }
                 }
                 ViewerVideoOverlays(client, zoom, extras) // HOOK 2/3
                 if (switching) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) { Label("Switching display...") }
@@ -120,8 +150,10 @@ fun ViewerScreen(
     }
 
     val controls: @Composable (Modifier) -> Unit = { mod ->
-        Column(mod, verticalArrangement = Arrangement.spacedBy(Space.md)) {
-            Trackpad(client, prefs, hostWidth, haptic, Modifier.weight(1f).fillMaxWidth())
+        // Portrait: the pad takes whatever the picture leaves. Landscape side panel: the pad keeps a usable fixed height
+        // and the panel scrolls, so a long tool grid can never squeeze the pad away.
+        Column(if (landscape) mod.verticalScroll(rememberScrollState()) else mod, verticalArrangement = Arrangement.spacedBy(Space.md)) {
+            Trackpad(client, prefs, hostWidth, haptic, if (landscape) Modifier.fillMaxWidth().height(136.dp) else Modifier.weight(1f).fillMaxWidth())
             MouseButtons(client, haptic)
             ShortcutDeck(prefs.shortcuts, client, haptic)
             if (prefs.simpleGestures) SimpleGestureButtons(client, haptic)
@@ -137,15 +169,24 @@ fun ViewerScreen(
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-                ToolButton(Ico.Display, "Displays", Modifier.weight(1f), enabled = monitors.isNotEmpty()) { overlay = Overlay.Displays }
-                ToolButton(Ico.Swap, "Next display", Modifier.weight(1f), enabled = sortedMonitors.size > 1) {
+            // Every tool in one grid, each with an icon and a name. A tile appears only when it can do something here.
+            val tiles = buildList {
+                add(ToolTileSpec("Keyboard", onClick = { overlay = Overlay.Keyboard }) { Icon(Ico.Keyboard, it) })
+                add(ToolTileSpec("Direct touch", active = prefs.directTouch, onClick = { onPrefs { p -> p.copy(directTouch = !p.directTouch) } }) { Icon(Ico.Touch, it) })
+                if (monitors.isNotEmpty()) add(ToolTileSpec("Displays", onClick = { overlay = Overlay.Displays }) { Icon(Ico.Display, it) })
+                if (sortedMonitors.size > 1) add(ToolTileSpec("Next display", onClick = {
                     val i = sortedMonitors.indexOfFirst { it.id == active }
-                    sortedMonitors.getOrNull((i + 1) % sortedMonitors.size)?.let { client.switchMonitor(it.id) }
-                }
-                ToolButton(Ico.Keyboard, "Keyboard", Modifier.weight(1f)) { overlay = Overlay.Keyboard }
-                ToolButton(Ico.Touch, "Direct touch", Modifier.weight(1f), active = prefs.directTouch) { onPrefs { it.copy(directTouch = !it.directTouch) } }
+                    sortedMonitors.getOrNull((i + 1) % sortedMonitors.size)?.let { m -> client.switchMonitor(m.id) }
+                }) { Icon(Ico.Swap, it) })
+                add(ToolTileSpec("Clipboard", onClick = { extras.clipboardOpen = true }) { ExtraIcon(ExtraIco.Clipboard, it) })
+                add(ToolTileSpec("Send file", onClick = { extras.sendOpen = true }) { ExtraIcon(ExtraIco.Send, it) })
+                add(ToolTileSpec("Camera and mic", active = media.on, onClick = { extras.mediaOpen = true }) { MediaIcon(false, it) })
+                if (audio) add(ToolTileSpec(if (muted) "Unmute PC" else "Mute PC", active = muted, onClick = { client.setAudioMuted(!muted) }) {
+                    ExtraIcon(if (muted) ExtraIco.SpeakerOff else ExtraIco.Speaker, it)
+                })
+                if (quickActions.isNotEmpty()) add(ToolTileSpec("PC actions", onClick = { extras.actionsOpen = true }) { PowerIcon(it) })
             }
+            ToolGrid(tiles, ToolGridLayout.perRow(landscape))
         }
     }
 
@@ -177,7 +218,10 @@ fun ViewerScreen(
         } else {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
                 TopBar(hostName, state, stats, rtt, prefs.showStats, onExit, Modifier.padding(horizontal = Space.md, vertical = Space.sm)) { overlay = Overlay.Settings }
-                video(Modifier.fillMaxWidth().weight(1.15f))
+                // While live the picture is exactly as tall as the PC's screen shape needs, so the pad and tools below get
+                // all the rest instead of a band of black bars. Before that (connecting, failed) it fills the space.
+                val ratio = if (videoSize.first > 0 && videoSize.second > 0) (videoSize.first.toFloat() / videoSize.second).coerceIn(1.2f, 2.4f) else 16f / 9f
+                video(if (live) Modifier.fillMaxWidth().aspectRatio(ratio) else Modifier.fillMaxWidth().weight(1.15f))
                 if (live) controls(Modifier.fillMaxWidth().weight(1f).padding(Space.md)) else Box(Modifier.weight(1f))
             }
         }
@@ -294,15 +338,6 @@ private fun Tag(text: String) {
     Box(Modifier.height(40.dp).clip(RoundedCornerShape(Radius.control)).background(Color80).border(1.dp, c.line, RoundedCornerShape(Radius.control)).padding(horizontal = Space.lg), contentAlignment = Alignment.Center) {
         Label(text, style = Gs.type.small)
     }
-}
-
-@Composable
-private fun ToolButton(kind: Ico, description: String, modifier: Modifier, active: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
-    val c = Gs.colors
-    PressBox(
-        { if (enabled) onClick() }, modifier.height(48.dp), description, RoundedCornerShape(Radius.chip),
-        background = if (active) c.accent else c.s2, border = !active,
-    ) { Icon(kind, if (!enabled) c.dim else if (active) c.ink else c.text) }
 }
 
 /** Keeps the screen on, and hides the system bars in landscape for a bigger picture. */

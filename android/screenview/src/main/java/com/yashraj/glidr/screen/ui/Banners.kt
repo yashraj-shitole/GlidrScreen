@@ -36,6 +36,7 @@ class ViewerExtras {
     var clipboardOpen by mutableStateOf(false)
     var sendOpen by mutableStateOf(false)
     var actionsOpen by mutableStateOf(false)
+    var mediaOpen by mutableStateOf(false)
 }
 
 @Composable
@@ -55,7 +56,7 @@ fun LockedBanner(modifier: Modifier = Modifier) {
 
 /** A 48 dp round-cornered button that sits on the picture: an icon, optionally with a short text. */
 @Composable
-private fun OverlayChip(kind: ExtraIco, description: String, active: Boolean = false, text: String? = null, onClick: () -> Unit) {
+fun OverlayChip(kind: ExtraIco, description: String, active: Boolean = false, text: String? = null, onClick: () -> Unit) {
     val c = Gs.colors
     val fg = if (active) c.ink else Color.White
     PressBox(
@@ -76,31 +77,11 @@ private fun OverlayChip(kind: ExtraIco, description: String, active: Boolean = f
 @Composable
 fun BoxScope.ViewerVideoOverlays(client: ScreenClient, zoom: VideoViewState, extras: ViewerExtras) {
     val locked by client.hostLocked.collectAsState()
-    val audio by client.audioActive.collectAsState()
-    val muted by client.audioMuted.collectAsState()
     if (locked) LockedBanner(Modifier.align(Alignment.Center).padding(Space.lg))
+    // Only the locked banner and short notices sit on the picture. Every button lives in the labelled tool grid under
+    // the pad (ViewerScreen), and the status tags are one stack at the top left.
     WindowShareOverlay(client)
-    RecordingOverlay(client) // "PC is recording" tag (RecordingTag.kt)
-    // sits under the base top-right row (View only tag, zoom reset), which is 44 dp tall
-    Column(
-        Modifier.align(Alignment.TopEnd).padding(top = Space.md + 44.dp + Space.sm, end = Space.md),
-        horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Space.sm),
-    ) {
-        OverlayChip(ExtraIco.Clipboard, "Clipboard") { extras.clipboardOpen = true }
-        OverlayChip(ExtraIco.Send, "Send file to PC") { extras.sendOpen = true }
-        QuickActionsChip(client) { extras.actionsOpen = true } // only when the PC offers quick actions
-        if (zoom.zoomed) {
-            OverlayChip(ExtraIco.Pointer, if (zoom.followCursor) "Follow pointer, on" else "Follow pointer, off", zoom.followCursor, "Follow pointer") {
-                zoom.followCursor = !zoom.followCursor
-            }
-        }
-        if (audio) {
-            OverlayChip(if (muted) ExtraIco.SpeakerOff else ExtraIco.Speaker, if (muted) "Unmute PC audio" else "Mute PC audio", muted) {
-                client.setAudioMuted(!muted)
-            }
-        }
-    }
-    PhoneMediaOverlay(client) // phone camera and microphone: chip, "Camera on" tag, sheet (PhoneMediaSheet.kt)
+    PhoneMediaHost(client, extras) // camera and microphone permissions and sheet; opened by the "Camera and mic" tile
 }
 
 /** Hook for the root of the viewer, next to the other sheets: the clipboard sheet and PC-to-phone clipboard copy. */
