@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -208,6 +209,7 @@ fun Trackpad(
             val line = c.line
             val edge = prefs.edgeScroll
             val corner = prefs.cornerClick
+            val zoneTint = c.accent.copy(alpha = 0.10f)
             Canvas(Modifier.fillMaxSize()) {
                 val step = 24.dp.toPx()
                 var y = step / 2
@@ -216,22 +218,49 @@ fun Trackpad(
                     while (x < size.width) { drawCircle(dot, 1.4.dp.toPx(), Offset(x, y)); x += step }
                     y += step
                 }
-                // faint cues for the opt-in zones
+                // the opt-in zones are drawn as tinted areas; their names are written on them below
                 if (edge) {
                     val h = EDGE_STRIP_DP.dp.toPx()
+                    drawRect(zoneTint, Offset(0f, size.height - h), androidx.compose.ui.geometry.Size(size.width, h))
                     drawLine(line, Offset(0f, size.height - h), Offset(size.width, size.height - h), 1.dp.toPx())
                 }
                 if (corner) {
                     val s = CORNER_DP.dp.toPx()
+                    drawRect(zoneTint, Offset(size.width - s, size.height - s), androidx.compose.ui.geometry.Size(s, s))
                     drawLine(line, Offset(size.width - s, size.height - s), Offset(size.width - s, size.height), 1.dp.toPx())
                     drawLine(line, Offset(size.width - s, size.height - s), Offset(size.width, size.height - s), 1.dp.toPx())
                 }
             }
             if (!touching) {
-                Column(Modifier.align(Alignment.Center).padding(horizontal = Space.lg), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-                    Label("Trackpad", color = c.dim)
-                    Label("Tap: click   Two-finger tap: right-click", color = c.dim, style = Gs.type.small)
-                    Label("Two fingers: scroll   Tap, then drag: drag", color = c.dim, style = Gs.type.small)
+                // The how-to text is centred in the part of the pad the zones leave free, and shrinks to one line on a short pad.
+                val reserved = (if (edge) EDGE_STRIP_DP.dp else 0.dp)
+                androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().padding(bottom = reserved)) {
+                    val roomy = maxHeight >= 120.dp
+                    Column(
+                        Modifier.align(Alignment.Center).padding(horizontal = Space.lg),
+                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Space.xs),
+                    ) {
+                        Label("Trackpad", color = c.dim)
+                        if (roomy) {
+                            val hint = Gs.type.small.copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Label("Drag: move   Tap: click", color = c.dim, style = hint)
+                            Label("Two-finger tap: right-click", color = c.dim, style = hint)
+                            Label("Two fingers: scroll", color = c.dim, style = hint)
+                            Label("Tap, then drag: drag", color = c.dim, style = hint)
+                        } else {
+                            Label("Drag to move, tap to click", color = c.dim, style = Gs.type.small, maxLines = 1)
+                        }
+                    }
+                }
+                if (edge) {
+                    Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(EDGE_STRIP_DP.dp).padding(end = if (corner) CORNER_DP.dp else 0.dp), contentAlignment = Alignment.Center) {
+                        Label("Slide here to scroll sideways", color = c.dim, style = Gs.type.small, maxLines = 1)
+                    }
+                }
+                if (corner) {
+                    Box(Modifier.align(Alignment.BottomEnd).size(CORNER_DP.dp), contentAlignment = Alignment.Center) {
+                        Label("Right-click", color = c.dim, style = Gs.type.small, maxLines = 1)
+                    }
                 }
             }
         }
@@ -244,6 +273,7 @@ private fun ScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
     val c = Gs.colors
     val p by rememberUpdatedState(prefs)
     val line = c.line
+    val arrow = c.dim
     Box(
         // This strip is on the screen edge, where Android's back swipe starts: keep that gesture off it.
         Modifier.width(48.dp).fillMaxHeight().background(c.s2).systemGestureExclusion()
@@ -274,11 +304,22 @@ private fun ScrollStrip(client: ScreenClient, prefs: ViewerPrefs) {
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val step = 16.dp.toPx()
-            var y = step
-            while (y < size.height) {
+            val margin = 40.dp.toPx() // room for the arrows at both ends
+            var y = margin
+            while (y < size.height - margin + 1f) {
                 drawLine(line, Offset(size.width * 0.3f, y), Offset(size.width * 0.7f, y), 2.dp.toPx(), StrokeCap.Round)
                 y += step
             }
+            // an arrow up at the top and one down at the bottom
+            val cx = size.width / 2
+            val a = 7.dp.toPx()
+            val sw = 2.5.dp.toPx()
+            val top = 22.dp.toPx()
+            drawLine(arrow, Offset(cx - a, top + a * 0.6f), Offset(cx, top - a * 0.6f), sw, StrokeCap.Round)
+            drawLine(arrow, Offset(cx, top - a * 0.6f), Offset(cx + a, top + a * 0.6f), sw, StrokeCap.Round)
+            val bottom = size.height - 22.dp.toPx()
+            drawLine(arrow, Offset(cx - a, bottom - a * 0.6f), Offset(cx, bottom + a * 0.6f), sw, StrokeCap.Round)
+            drawLine(arrow, Offset(cx, bottom + a * 0.6f), Offset(cx + a, bottom - a * 0.6f), sw, StrokeCap.Round)
         }
     }
 }

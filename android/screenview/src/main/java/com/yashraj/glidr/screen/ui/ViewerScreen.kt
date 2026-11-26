@@ -322,16 +322,6 @@ private fun StateOverlay(state: ConnState, diag: String, stage: String, onRetry:
     }
 }
 
-/** On-screen Middle click and scrolling for people who cannot do the multi-finger gestures. */
-@Composable
-private fun SimpleGestureButtons(client: ScreenClient, haptic: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
-        Pill("Middle", { client.click(MouseButton.Middle); haptic(false) }, Modifier.weight(1f))
-        Pill("Up", { client.scrollBy(0f, 3f); haptic(false) }, Modifier.weight(1f))
-        Pill("Down", { client.scrollBy(0f, -3f); haptic(false) }, Modifier.weight(1f))
-    }
-}
-
 @Composable
 private fun Tag(text: String) {
     val c = Gs.colors
